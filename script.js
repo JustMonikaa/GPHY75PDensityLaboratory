@@ -8,6 +8,18 @@
 const G = 9.81; // m/s^2
 const WIKI_URL = "https://en.wikipedia.org/wiki/Density#Various_materials";
 
+// Helper to render KaTeX inside any DOM element safely
+function renderMathIn(el) {
+  if (!el || typeof renderMathInElement !== "function") return;
+  renderMathInElement(el, {
+    delimiters: [
+      { left: "$$", right: "$$", display: true },
+      { left: "$", right: "$", display: false }
+    ],
+    throwOnError: false
+  });
+}
+
 // Complete set of 47 dense materials from Wikipedia's "Various materials" table (kg/m^3)
 const WIKI_MATERIALS = [
   { name: "Nylon", density: 1150, aliases: ["nylon"] },
@@ -67,7 +79,7 @@ const SITE_FLUIDS = [
   { label: "Industrial Glycerol Tank", density: 1261, tint: "rgba(116, 156, 198, 0.48)" }
 ];
 
-// Deterministic seeded PRNG (Mulberry32) so all 9 crew members on different devices share one mission
+// Deterministic seeded PRNG (Mulberry32) so multiple devices share one mission
 function hashSeed(str) {
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) {
@@ -113,14 +125,10 @@ function generateMission(seedText) {
   const seedGen = hashSeed(cleanSeed);
   const rand = mulberry32(seedGen());
 
-  // 1. Pick site fluid
   const fluid = SITE_FLUIDS[Math.floor(rand() * SITE_FLUIDS.length)];
-
-  // 2. Pick a sunken material guaranteed to sink cleanly in this fluid
   const eligible = WIKI_MATERIALS.filter((m) => m.density > fluid.density + 110);
   const material = eligible[Math.floor(rand() * eligible.length)];
 
-  // 3. Size the artifact volume so true mass lands in a realistic 4,200 - 9,500 kg salvage window
   const targetMass = 4200 + rand() * 5300;
   const rawVol = targetMass / material.density;
   const artifactVol = Math.max(0.18, Math.min(4.5, Math.round(rawVol * 1000) / 1000));
@@ -128,7 +136,6 @@ function generateMission(seedText) {
   const artifactApparentW = (artifactMass - fluid.density * artifactVol) * G;
   const idealBagVol = artifactApparentW / (fluid.density * G);
 
-  // 4. Design Station 3 Barge so adding the artifact ALWAYS exceeds dSafe
   const lengths = [6.0, 6.5, 7.0];
   const widths = [3.0, 3.5, 4.0];
   const bargeL = lengths[Math.floor(rand() * lengths.length)];
@@ -139,7 +146,6 @@ function generateMission(seedText) {
   const bargeDMin = 1.32;
 
   const cargoDraftDelta = artifactMass / (fluid.density * bargeArea);
-  // Ensure unpumped loaded draft lands between 1.68 m and 1.94 m (clearly over 1.50 m red line)
   const targetUnpumped = 1.68 + rand() * 0.24;
   const targetEmptyD0 = Math.max(0.85, Math.min(1.42, targetUnpumped - cargoDraftDelta));
   const bargeMb = Math.round((fluid.density * bargeArea * targetEmptyD0) / 10) * 10;
@@ -147,7 +153,6 @@ function generateMission(seedText) {
   const actualEmptyD0 = bargeMb / (fluid.density * bargeArea);
   const unpumpedLoadedD = (bargeMb + artifactMass) / (fluid.density * bargeArea);
   const idealPumpVol = bargeArea * (unpumpedLoadedD - bargeDSafe);
-  // Make tank hold enough extra water that draining it completely makes barge ride too high (< dMin)
   const maxBallastVol = Math.ceil((idealPumpVol + bargeArea * 0.34) * 10) / 10;
 
   mission = {
@@ -173,7 +178,6 @@ function generateMission(seedText) {
     }
   };
 
-  // Reset crew progress
   crewProgress.s1Done = false;
   crewProgress.s1Rho = null;
   crewProgress.s2HoverDone = false;
@@ -219,6 +223,7 @@ function setFeedback(id, type, message) {
   const box = document.getElementById(id);
   box.className = `feedback-box show ${type}`;
   box.textContent = message;
+  renderMathIn(box);
 }
 
 function updateCommsUI() {
@@ -228,16 +233,18 @@ function updateCommsUI() {
   const statusEl = document.getElementById("comms-status");
 
   if (crewProgress.s1Done && crewProgress.s1Rho !== null) {
-    rhoEl.textContent = `${crewProgress.s1Rho.toFixed(1)} kg/m³`;
+    rhoEl.textContent = `$${crewProgress.s1Rho.toFixed(1)}\\text{ kg/m}^3$`;
     rhoEl.className = "comms-value ok";
+    renderMathIn(rhoEl);
   } else {
-    rhoEl.textContent = "Awaiting Lab Data";
+    rhoEl.textContent = "Awaiting Data";
     rhoEl.className = "comms-value pending";
   }
 
   if (crewProgress.s2MaterialDone && crewProgress.s2Mass !== null) {
-    massEl.textContent = `${crewProgress.s2Mass.toFixed(1)} kg`;
+    massEl.textContent = `$${crewProgress.s2Mass.toFixed(1)}\\text{ kg}$`;
     massEl.className = "comms-value ok";
+    renderMathIn(massEl);
     matEl.textContent = crewProgress.s2MaterialName;
     matEl.className = "comms-value ok";
   } else {
@@ -252,7 +259,7 @@ function updateCommsUI() {
     statusEl.className = "comms-value ok";
     showMissionCompleteBanner();
   } else if (crewProgress.s3Done) {
-    statusEl.textContent = "Barge Secured (Verify S1/S2 logs)";
+    statusEl.textContent = "Barge Secured (Verify S1/S2)";
     statusEl.className = "comms-value status-active";
   } else {
     statusEl.textContent = "In Progress";
@@ -266,17 +273,18 @@ function showMissionCompleteBanner() {
   const rhoErr = Math.abs((crewProgress.s1Rho - mission.fluid.density) / mission.fluid.density) * 100;
   const massErr = Math.abs((crewProgress.s2Mass - mission.artifactMass) / mission.artifactMass) * 100;
   text.textContent =
-    `Seed ${mission.seed}: Site fluid was ${mission.fluid.density} kg/m³ (Team 1 error: ${rhoErr.toFixed(2)}%). ` +
-    `Recovered artifact was ${mission.material.name} (${mission.material.density} kg/m³, true mass ${mission.artifactMass.toFixed(1)} kg; Team 2 mass error: ${massErr.toFixed(2)}%). ` +
-    `Team 3 successfully trimmed ballast and secured the cargo safely on the barge deck!`;
+    `Seed ${mission.seed}: Site fluid density was $\\rho_f = ${mission.fluid.density}\\text{ kg/m}^3$ (Station 1 error: $${rhoErr.toFixed(2)}\\%$). ` +
+    `Recovered artifact was ${mission.material.name} ($\\rho_o = ${mission.material.density}\\text{ kg/m}^3$, true mass $m_o = ${mission.artifactMass.toFixed(1)}\\text{ kg}$; Station 2 error: $${massErr.toFixed(2)}\\%$). ` +
+    `Station 3 trimmed ballast and secured the cargo safely on deck!`;
+  renderMathIn(text);
   banner.classList.remove("hidden");
 }
 
 /* =========================================================================
-   CANVAS UTILITIES
+   CANVAS UTILITIES (Larger Work Area: 920 x 560)
    ========================================================================= */
-const CW = 820;
-const CH = 480;
+const CW = 920;
+const CH = 560;
 
 function initHiDPICanvas(canvas) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -306,20 +314,25 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
 
 /* =========================================================================
    STATION 1 — FLUID ANALYSIS LAB (Hydrometer + Reference Block)
+   Recalibrated so cylinder & stacked weights always sit cleanly below titles
    ========================================================================= */
 const s1Canvas = document.getElementById("canvas-s1");
 const s1Ctx = initHiDPICanvas(s1Canvas);
 
 const S1_CONST = {
+  benchY: 524,
   hydroBaseMass: 0.5, // kg
   hydroArea: 0.005, // m^2
-  hydroHeightM: 0.45, // m
+  hydroHeightM: 0.4, // m (168 px at 420 px/m -> never clips top or overlaps title)
   refVol: 0.0012, // m^3
-  refDensity: 8600, // Brass reference block
-  refMass: 0.0012 * 8600, // 10.32 kg
-  pxPerMeter: 560, // vertical scale for hydrometer ruler
-  leftTank: { x: 165, y: 120, w: 185, h: 320, waterTopY: 185 },
-  rightTank: { x: 540, y: 245, w: 195, h: 195, baseWaterY: 295 }
+  refDensity: 8600,
+  refMass: 0.0012 * 8600,
+  pxPerMeter: 420,
+  leftTank: { x: 195, y: 225, w: 215, h: 299, waterTopY: 285 },
+  rightTank: { x: 600, y: 315, w: 210, h: 209, baseWaterY: 365 },
+  rodLenBelowWinch: 110,
+  winchMinY: 140,
+  winchMaxY: 292
 };
 
 let s1State = null;
@@ -327,21 +340,20 @@ let s1State = null;
 function resetStation1() {
   s1State = {
     weights: [
-      { id: "w1", mass: 0.2, label: "0.20 kg", trayX: 38, trayY: 215, x: 38, y: 215, w: 72, h: 28, onPan: false },
-      { id: "w2", mass: 0.3, label: "0.30 kg", trayX: 38, trayY: 260, x: 38, y: 260, w: 78, h: 30, onPan: false },
-      { id: "w3", mass: 0.4, label: "0.40 kg", trayX: 38, trayY: 308, x: 38, y: 308, w: 84, h: 32, onPan: false },
-      { id: "w4", mass: 0.5, label: "0.50 kg", trayX: 38, trayY: 358, x: 38, y: 358, w: 90, h: 34, onPan: false }
+      { id: "w1", mass: 0.2, label: "0.20 kg", trayX: 40, trayY: 254, x: 40, y: 254, w: 78, h: 28, onPan: false },
+      { id: "w2", mass: 0.3, label: "0.30 kg", trayX: 37, trayY: 302, x: 37, y: 302, w: 84, h: 30, onPan: false },
+      { id: "w3", mass: 0.4, label: "0.40 kg", trayX: 34, trayY: 354, x: 34, y: 354, w: 90, h: 32, onPan: false },
+      { id: "w4", mass: 0.5, label: "0.50 kg", trayX: 31, trayY: 410, x: 31, y: 410, w: 96, h: 34, onPan: false }
     ],
     hydroSubM: 0.1,
     hydroVel: 0,
     sightlineY: S1_CONST.leftTank.waterTopY,
-    // Method 2: Reference block & winch
     blockHooked: false,
-    blockX: 430,
-    blockY: 388,
-    blockHomeX: 430,
-    blockHomeY: 388,
-    winchY: 138, // top of scale hook travel (138 = in air, 275 = fully submerged)
+    blockX: 512,
+    blockY: 468,
+    blockHomeX: 512,
+    blockHomeY: 468,
+    winchY: S1_CONST.winchMinY,
     dragging: null,
     dragOffX: 0,
     dragOffY: 0,
@@ -361,12 +373,12 @@ function getS1PanRect() {
   const cx = tank.x + tank.w / 2;
   const hydroBottomY = tank.waterTopY + s1State.hydroSubM * S1_CONST.pxPerMeter;
   const hydroTopY = hydroBottomY - S1_CONST.hydroHeightM * S1_CONST.pxPerMeter;
-  return { x: cx - 50, y: hydroTopY - 12, w: 100, h: 12, cx, hydroTopY, hydroBottomY };
+  return { x: cx - 54, y: hydroTopY - 12, w: 108, h: 12, cx, hydroTopY, hydroBottomY };
 }
 
 function getS1BlockSubmergedFraction() {
   if (!s1State.blockHooked) return 0;
-  const blockTopY = s1State.winchY + 58;
+  const blockTopY = s1State.winchY + S1_CONST.rodLenBelowWinch;
   const blockH = 54;
   const blockBottomY = blockTopY + blockH;
   const waterY = S1_CONST.rightTank.baseWaterY;
@@ -387,16 +399,12 @@ function updateStation1(dt) {
   if (!s1State || !mission) return;
   s1State.time += dt;
 
-  // Smooth spring-damper buoyancy for hydrometer
   const totalMass = getS1HydrometerTotalMass();
   const targetSubM = totalMass / (mission.fluid.density * S1_CONST.hydroArea);
-  const k = 42;
-  const damping = 7.5;
-  const acc = (targetSubM - s1State.hydroSubM) * k - s1State.hydroVel * damping;
+  const acc = (targetSubM - s1State.hydroSubM) * 42 - s1State.hydroVel * 7.5;
   s1State.hydroVel += acc * dt;
   s1State.hydroSubM += s1State.hydroVel * dt;
 
-  // Stack weights visually on pan
   const pan = getS1PanRect();
   let stackY = pan.y;
   s1State.weights.forEach((w) => {
@@ -410,17 +418,15 @@ function updateStation1(dt) {
     }
   });
 
-  // Update block position if hooked
   const hookX = S1_CONST.rightTank.x + S1_CONST.rightTank.w / 2;
   if (s1State.blockHooked && (!s1State.dragging || s1State.dragging.type !== "block")) {
     s1State.blockX = hookX - 27;
-    s1State.blockY = s1State.winchY + 58;
+    s1State.blockY = s1State.winchY + S1_CONST.rodLenBelowWinch;
   } else if (!s1State.blockHooked && (!s1State.dragging || s1State.dragging.type !== "block")) {
     s1State.blockX += (s1State.blockHomeX - s1State.blockX) * Math.min(1, dt * 12);
     s1State.blockY += (s1State.blockHomeY - s1State.blockY) * Math.min(1, dt * 12);
   }
 
-  // Update HUD
   document.getElementById("s1-hud-mass").textContent = `${totalMass.toFixed(2)} kg`;
   const depthAtSightM = Math.max(0, (pan.hydroBottomY - s1State.sightlineY) / S1_CONST.pxPerMeter);
   document.getElementById("s1-hud-depth").textContent = `${depthAtSightM.toFixed(3)} m (${(depthAtSightM * 100).toFixed(1)} cm)`;
@@ -431,7 +437,6 @@ function drawStation1() {
   const ctx = s1Ctx;
   ctx.clearRect(0, 0, CW, CH);
 
-  // Lab backdrop
   const bg = ctx.createLinearGradient(0, 0, 0, CH);
   bg.addColorStop(0, "#0c192b");
   bg.addColorStop(1, "#091220");
@@ -440,42 +445,63 @@ function drawStation1() {
 
   // Benchtop
   ctx.fillStyle = "#1d2c42";
-  ctx.fillRect(0, 440, CW, 40);
+  ctx.fillRect(0, S1_CONST.benchY, CW, CH - S1_CONST.benchY);
   ctx.strokeStyle = "#354d70";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, 440);
-  ctx.lineTo(CW, 440);
+  ctx.moveTo(0, S1_CONST.benchY);
+  ctx.lineTo(CW, S1_CONST.benchY);
   ctx.stroke();
 
-  // Section titles
+  // Section titles cleanly positioned with full clearance
+  const lt = S1_CONST.leftTank;
+  const rt = S1_CONST.rightTank;
+  const leftCenterX = lt.x + lt.w / 2;
+  const rightCenterX = rt.x + rt.w / 2;
+
+  ctx.textAlign = "center";
   ctx.fillStyle = "#9db2ce";
   ctx.font = "700 13px system-ui, sans-serif";
-  ctx.fillText("METHOD 1: FLOATING HYDROMETER", 150, 26);
-  ctx.fillText("METHOD 2: SUBMERGED REFERENCE BLOCK", 500, 26);
+  ctx.fillText("METHOD 1: FLOATING HYDROMETER", leftCenterX, 28);
+  ctx.fillText("METHOD 2: SUBMERGED REFERENCE BLOCK", rightCenterX, 28);
+
+  // Method 2 Status Text neatly placed directly beneath "METHOD 2" heading
+  const subFrac = getS1BlockSubmergedFraction();
+  if (!s1State.blockHooked) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "600 11px system-ui, sans-serif";
+    ctx.fillText("STATUS: DRAG REFERENCE BLOCK ONTO HOOK", rightCenterX, 50);
+  } else {
+    ctx.fillStyle = subFrac === 1 ? "#4ade80" : subFrac === 0 ? "#38bdf8" : "#f59e0b";
+    ctx.font = "700 12px system-ui, sans-serif";
+    const statusLabel =
+      subFrac === 1 ? "STATUS: FULLY SUBMERGED" : subFrac === 0 ? "STATUS: SUSPENDED IN AIR" : "STATUS: PARTIALLY SUBMERGED";
+    ctx.fillText(statusLabel, rightCenterX, 50);
+  }
+  ctx.textAlign = "left";
 
   // Brass weight shelf on left
   ctx.fillStyle = "#162439";
-  drawRoundedRect(ctx, 18, 175, 128, 250, 10);
+  drawRoundedRect(ctx, 18, 210, 140, 290, 10);
   ctx.fill();
   ctx.strokeStyle = "#2d4466";
   ctx.stroke();
   ctx.fillStyle = "#8ca5c6";
-  ctx.font = "600 11px system-ui, sans-serif";
-  ctx.fillText("DRAG WEIGHTS", 38, 198);
+  ctx.font = "700 11px system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("DRAG WEIGHTS", 88, 234);
+  ctx.textAlign = "left";
 
   // ---- LEFT TANK (HYDROMETER) ----
-  const lt = S1_CONST.leftTank;
-  // Fluid inside left tank
   ctx.fillStyle = mission.fluid.tint;
   ctx.fillRect(lt.x + 4, lt.waterTopY, lt.w - 8, lt.y + lt.h - lt.waterTopY - 4);
 
-  // Animated fluid meniscus surface
+  // Animated water surface
   ctx.strokeStyle = "#7dd3fc";
   ctx.lineWidth = 2;
   ctx.beginPath();
   for (let x = lt.x + 4; x <= lt.x + lt.w - 4; x += 6) {
-    const wave = Math.sin(x * 0.08 + s1State.time * 3) * 1.4;
+    const wave = Math.sin(x * 0.075 + s1State.time * 3) * 1.4;
     if (x === lt.x + 4) ctx.moveTo(x, lt.waterTopY + wave);
     else ctx.lineTo(x, lt.waterTopY + wave);
   }
@@ -483,11 +509,10 @@ function drawStation1() {
 
   // Hydrometer cylinder
   const pan = getS1PanRect();
-  const cylW = 54;
+  const cylW = 58;
   const cylX = pan.cx - cylW / 2;
   const cylH = pan.hydroBottomY - pan.hydroTopY;
 
-  // Weighted ballast tip at bottom of hydrometer
   const bodyGrad = ctx.createLinearGradient(cylX, 0, cylX + cylW, 0);
   bodyGrad.addColorStop(0, "#cbd5e1");
   bodyGrad.addColorStop(0.5, "#f8fafc");
@@ -501,13 +526,13 @@ function drawStation1() {
 
   // Bottom lead ballast cap
   ctx.fillStyle = "#334155";
-  ctx.fillRect(cylX + 2, pan.hydroBottomY - 18, cylW - 4, 16);
+  ctx.fillRect(cylX + 2, pan.hydroBottomY - 15, cylW - 4, 13);
 
-  // Ruler ticks on hydrometer (cm from bottom)
+  // Ruler ticks (cm from bottom)
   ctx.fillStyle = "#0f172a";
   ctx.strokeStyle = "#0f172a";
   ctx.font = "600 9px monospace";
-  for (let cm = 5; cm <= 40; cm += 1) {
+  for (let cm = 5; cm <= 38; cm += 1) {
     const ty = pan.hydroBottomY - (cm / 100) * S1_CONST.pxPerMeter;
     if (ty < pan.hydroTopY + 6) continue;
     const isMajor = cm % 5 === 0;
@@ -517,7 +542,7 @@ function drawStation1() {
     ctx.lineWidth = isMajor ? 1.5 : 1;
     ctx.stroke();
     if (isMajor) {
-      ctx.fillText(`${cm}`, cylX + 21, ty + 3);
+      ctx.fillText(`${cm}`, cylX + 22, ty + 3);
     }
   }
 
@@ -528,18 +553,17 @@ function drawStation1() {
   ctx.strokeStyle = "#64748b";
   ctx.stroke();
 
-  // Drop zone glow when dragging a weight
   if (s1State.dragging && s1State.dragging.type === "weight") {
     ctx.save();
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
-    drawRoundedRect(ctx, pan.x - 10, pan.y - 75, pan.w + 20, 82, 8);
+    drawRoundedRect(ctx, pan.x - 10, pan.y - 95, pan.w + 20, 102, 8);
     ctx.stroke();
     ctx.restore();
   }
 
-  // Tank glass outline
+  // Left tank glass outline
   ctx.strokeStyle = "#94a3b8";
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -549,28 +573,29 @@ function drawStation1() {
   ctx.lineTo(lt.x + lt.w, lt.y);
   ctx.stroke();
 
-  // Draggable Red Sightline Caliper on Left Tank
+  // Draggable Red Sightline Caliper
   ctx.save();
   ctx.strokeStyle = "#f43f5e";
   ctx.lineWidth = 1.6;
   ctx.setLineDash([6, 4]);
   ctx.beginPath();
   ctx.moveTo(lt.x - 10, s1State.sightlineY);
-  ctx.lineTo(lt.x + lt.w + 22, s1State.sightlineY);
+  ctx.lineTo(lt.x + lt.w + 18, s1State.sightlineY);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // Sightline grab tab
   ctx.fillStyle = "#f43f5e";
-  drawRoundedRect(ctx, lt.x + lt.w + 8, s1State.sightlineY - 12, 68, 24, 6);
+  drawRoundedRect(ctx, lt.x + lt.w + 8, s1State.sightlineY - 12, 72, 24, 6);
   ctx.fill();
   ctx.fillStyle = "#fff";
-  ctx.font = "700 10px system-ui, sans-serif";
+  ctx.font = "700 10px monospace";
+  ctx.textAlign = "center";
   const readingCm = Math.max(0, ((pan.hydroBottomY - s1State.sightlineY) / S1_CONST.pxPerMeter) * 100);
-  ctx.fillText(`${readingCm.toFixed(1)} cm`, lt.x + lt.w + 17, s1State.sightlineY + 4);
+  ctx.fillText(`${readingCm.toFixed(1)} cm`, lt.x + lt.w + 44, s1State.sightlineY + 4);
+  ctx.textAlign = "left";
   ctx.restore();
 
-  // Draw Brass Calibration Weights
+  // Brass Calibration Weights
   s1State.weights.forEach((w) => {
     const grad = ctx.createLinearGradient(w.x, w.y, w.x + w.w, w.y);
     grad.addColorStop(0, "#b45309");
@@ -591,63 +616,60 @@ function drawStation1() {
   });
 
   // ---- RIGHT TANK (REFERENCE BLOCK & SPRING SCALE) ----
-  const rt = S1_CONST.rightTank;
-  const hookX = rt.x + rt.w / 2;
-  const subFrac = getS1BlockSubmergedFraction();
+  const hookX = rightCenterX;
   const waterRise = subFrac * 14;
   const currentRightWaterY = rt.baseWaterY - waterRise;
 
-  // Support Gantry Stand
+  // Support Gantry Stand (starts well below Method 2 status text)
   ctx.fillStyle = "#334155";
-  ctx.fillRect(rt.x + rt.w + 26, 60, 12, 380);
-  ctx.fillRect(hookX - 10, 60, rt.x + rt.w + 42 - hookX, 12);
+  ctx.fillRect(rt.x + rt.w + 30, 76, 12, S1_CONST.benchY - 76);
+  ctx.fillRect(hookX - 10, 76, rt.x + rt.w + 42 - hookX, 12);
 
   // Winch vertical rail
   ctx.strokeStyle = "#475569";
   ctx.lineWidth = 4;
   ctx.beginPath();
-  ctx.moveTo(hookX, 72);
-  ctx.lineTo(hookX, s1State.winchY);
+  ctx.moveTo(hookX, 88);
+  ctx.lineTo(hookX, s1State.winchY - 34);
   ctx.stroke();
 
-  // Digital Spring Scale body (draggable vertically!)
+  // Digital Spring Scale body
   const scaleY = s1State.winchY - 34;
   ctx.fillStyle = "#1e293b";
-  drawRoundedRect(ctx, hookX - 42, scaleY, 84, 52, 8);
+  drawRoundedRect(ctx, hookX - 46, scaleY, 92, 54, 8);
   ctx.fill();
   ctx.strokeStyle = "#38bdf8";
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Scale screen
   ctx.fillStyle = "#06111e";
-  ctx.fillRect(hookX - 34, scaleY + 8, 68, 22);
+  ctx.fillRect(hookX - 38, scaleY + 8, 76, 23);
   ctx.fillStyle = "#38bdf8";
   ctx.font = "700 12px monospace";
   ctx.textAlign = "center";
-  ctx.fillText(`${getS1SpringScaleReading().toFixed(2)} N`, hookX, scaleY + 23);
+  ctx.fillText(`${getS1SpringScaleReading().toFixed(2)} N`, hookX, scaleY + 24);
   ctx.fillStyle = "#94a3b8";
   ctx.font = "600 9px system-ui, sans-serif";
-  ctx.fillText("DRAG UP/DOWN", hookX, scaleY + 43);
+  ctx.fillText("DRAG UP/DOWN", hookX, scaleY + 44);
   ctx.textAlign = "left";
 
-  // Hook line below scale
+  // Extended suspension rod & hook below scale so scale stays dry when block is submerged
+  const hookTipY = s1State.winchY + S1_CONST.rodLenBelowWinch;
   ctx.strokeStyle = "#cbd5e1";
   ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.moveTo(hookX, scaleY + 52);
-  ctx.lineTo(hookX, s1State.winchY + 52);
-  ctx.arc(hookX, s1State.winchY + 57, 6, -Math.PI / 2, Math.PI, false);
+  ctx.moveTo(hookX, scaleY + 54);
+  ctx.lineTo(hookX, hookTipY - 6);
+  ctx.arc(hookX, hookTipY, 6, -Math.PI / 2, Math.PI, false);
   ctx.stroke();
 
-  // Drop zone hint if dragging block
   if (s1State.dragging && s1State.dragging.type === "block" && !s1State.blockHooked) {
     ctx.save();
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(hookX, s1State.winchY + 60, 34, 0, Math.PI * 2);
+    ctx.arc(hookX, hookTipY + 4, 36, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
@@ -668,7 +690,6 @@ function drawStation1() {
   const bw = 54;
   const bh = 54;
 
-  // Eye ring on block
   ctx.strokeStyle = "#e2e8f0";
   ctx.lineWidth = 2.5;
   ctx.beginPath();
@@ -690,18 +711,12 @@ function drawStation1() {
   ctx.textAlign = "center";
   ctx.fillText("REF", bx + bw / 2, by + 24);
   ctx.fillText("1.20 L", bx + bw / 2, by + 39);
-  ctx.textAlign = "left";
-
   if (!s1State.blockHooked) {
     ctx.fillStyle = "#94a3b8";
     ctx.font = "600 10px system-ui, sans-serif";
-    ctx.fillText("Drag to hook", bx - 5, by + bh + 16);
-  } else {
-    ctx.fillStyle = subFrac === 1 ? "#4ade80" : subFrac === 0 ? "#38bdf8" : "#f59e0b";
-    ctx.font = "700 11px system-ui, sans-serif";
-    const statusLabel = subFrac === 1 ? "FULLY SUBMERGED" : subFrac === 0 ? "SUSPENDED IN AIR" : "PARTIALLY SUBMERGED";
-    ctx.fillText(statusLabel, rt.x + 36, rt.y - 12);
+    ctx.fillText("Drag to hook", bx + bw / 2, by + bh + 18);
   }
+  ctx.textAlign = "left";
 
   // Right tank glass outline
   ctx.strokeStyle = "#94a3b8";
@@ -719,18 +734,12 @@ s1Canvas.addEventListener("pointerdown", (e) => {
   const pos = getPointerPos(s1Canvas, e);
   s1Canvas.setPointerCapture(e.pointerId);
 
-  // 1. Check Sightline grab tab
   const lt = S1_CONST.leftTank;
-  if (
-    pos.x >= lt.x + lt.w &&
-    pos.x <= lt.x + lt.w + 82 &&
-    Math.abs(pos.y - s1State.sightlineY) <= 18
-  ) {
+  if (pos.x >= lt.x + lt.w && pos.x <= lt.x + lt.w + 88 && Math.abs(pos.y - s1State.sightlineY) <= 18) {
     s1State.dragging = { type: "sightline" };
     return;
   }
 
-  // 2. Check Weights (topmost first)
   for (let i = s1State.weights.length - 1; i >= 0; i--) {
     const w = s1State.weights[i];
     if (pos.x >= w.x && pos.x <= w.x + w.w && pos.y >= w.y && pos.y <= w.y + w.h) {
@@ -741,7 +750,6 @@ s1Canvas.addEventListener("pointerdown", (e) => {
     }
   }
 
-  // 3. Check Reference Block
   if (
     pos.x >= s1State.blockX &&
     pos.x <= s1State.blockX + 54 &&
@@ -749,7 +757,6 @@ s1Canvas.addEventListener("pointerdown", (e) => {
     pos.y <= s1State.blockY + 54
   ) {
     if (s1State.blockHooked) {
-      // Dragging the hooked block vertically moves the winch!
       s1State.dragging = { type: "winch" };
       s1State.dragOffY = pos.y - s1State.winchY;
     } else {
@@ -760,13 +767,8 @@ s1Canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  // 4. Check Spring Scale / Winch body
   const hookX = S1_CONST.rightTank.x + S1_CONST.rightTank.w / 2;
-  if (
-    Math.abs(pos.x - hookX) <= 46 &&
-    pos.y >= s1State.winchY - 38 &&
-    pos.y <= s1State.winchY + 56
-  ) {
+  if (Math.abs(pos.x - hookX) <= 50 && pos.y >= s1State.winchY - 38 && pos.y <= s1State.winchY + 30) {
     s1State.dragging = { type: "winch" };
     s1State.dragOffY = pos.y - s1State.winchY;
   }
@@ -775,13 +777,12 @@ s1Canvas.addEventListener("pointerdown", (e) => {
 s1Canvas.addEventListener("pointermove", (e) => {
   const pos = getPointerPos(s1Canvas, e);
   if (!s1State.dragging) {
-    // Update hover cursor
     const lt = S1_CONST.leftTank;
     const hookX = S1_CONST.rightTank.x + S1_CONST.rightTank.w / 2;
-    const overSight = pos.x >= lt.x + lt.w && pos.x <= lt.x + lt.w + 82 && Math.abs(pos.y - s1State.sightlineY) <= 18;
+    const overSight = pos.x >= lt.x + lt.w && pos.x <= lt.x + lt.w + 88 && Math.abs(pos.y - s1State.sightlineY) <= 18;
     const overWeight = s1State.weights.some((w) => pos.x >= w.x && pos.x <= w.x + w.w && pos.y >= w.y && pos.y <= w.y + w.h);
     const overBlock = pos.x >= s1State.blockX && pos.x <= s1State.blockX + 54 && pos.y >= s1State.blockY - 12 && pos.y <= s1State.blockY + 54;
-    const overWinch = Math.abs(pos.x - hookX) <= 46 && pos.y >= s1State.winchY - 38 && pos.y <= s1State.winchY + 56;
+    const overWinch = Math.abs(pos.x - hookX) <= 50 && pos.y >= s1State.winchY - 38 && pos.y <= s1State.winchY + 30;
     s1Canvas.style.cursor = overSight || overWinch ? "ns-resize" : overWeight || overBlock ? "grab" : "default";
     return;
   }
@@ -797,7 +798,7 @@ s1Canvas.addEventListener("pointermove", (e) => {
     s1State.blockX = clamp(pos.x - s1State.dragOffX, 6, CW - 60);
     s1State.blockY = clamp(pos.y - s1State.dragOffY, 6, CH - 60);
   } else if (s1State.dragging.type === "winch") {
-    s1State.winchY = clamp(pos.y - s1State.dragOffY, 128, 290);
+    s1State.winchY = clamp(pos.y - s1State.dragOffY, S1_CONST.winchMinY, S1_CONST.winchMaxY);
   }
 });
 
@@ -809,19 +810,19 @@ function releaseS1Drag() {
     const wCx = w.x + w.w / 2;
     const wCy = w.y + w.h / 2;
     const insidePanZone =
-      wCx >= pan.x - 24 && wCx <= pan.x + pan.w + 24 && wCy >= pan.y - 120 && wCy <= pan.y + 45;
+      wCx >= pan.x - 26 && wCx <= pan.x + pan.w + 26 && wCy >= pan.y - 140 && wCy <= pan.y + 45;
     if (insidePanZone && !w.onPan) {
       w.onPan = true;
-      s1State.hydroVel += 0.14; // small splash impulse
+      s1State.hydroVel += 0.14;
     } else if (!insidePanZone && w.onPan) {
       w.onPan = false;
       s1State.hydroVel -= 0.1;
     }
   } else if (s1State.dragging.type === "block") {
     const hookX = S1_CONST.rightTank.x + S1_CONST.rightTank.w / 2;
-    const hookY = s1State.winchY + 58;
+    const hookY = s1State.winchY + S1_CONST.rodLenBelowWinch;
     const dist = Math.hypot(s1State.blockX + 27 - hookX, s1State.blockY - hookY);
-    if (dist < 62) {
+    if (dist < 68) {
       s1State.blockHooked = true;
     }
   }
@@ -839,13 +840,19 @@ const s2Canvas = document.getElementById("canvas-s2");
 const s2Ctx = initHiDPICanvas(s2Canvas);
 
 const S2_CONST = {
-  waterSurfaceY: 66,
-  seabedY: 422,
-  targetTopY: 185,
-  targetBottomY: 285,
-  craneX: 430,
-  artW: 76,
-  artH: 56
+  waterSurfaceY: 74,
+  seabedY: 496,
+  targetTopY: 215,
+  targetBottomY: 335,
+  craneX: 465,
+  artW: 84,
+  artH: 60,
+  panelX: 754,
+  panelW: 148,
+  trackTop: 142,
+  trackH: 185,
+  pinTrackY: 400,
+  pinTrackW: 112
 };
 
 let s2State = null;
@@ -854,27 +861,24 @@ function resetStation2() {
   s2State = {
     artY: S2_CONST.seabedY - S2_CONST.artH,
     artVel: 0,
-    hookY: 145,
+    hookY: 165,
     hookAttached: false,
     craneReleased: false,
-    // Draggable Sonar ROV
-    rovX: 62,
-    rovY: 135,
-    rovHomeX: 62,
-    rovHomeY: 135,
+    rovX: 64,
+    rovY: 152,
+    rovHomeX: 64,
+    rovHomeY: 152,
     scanProgress: 0,
     scanned: false,
-    // Draggable Lift Bag
     bagRigged: false,
-    bagX: 68,
-    bagY: 295,
-    bagHomeX: 68,
-    bagHomeY: 295,
+    bagX: 62,
+    bagY: 336,
+    bagHomeX: 62,
+    bagHomeY: 336,
     bagVol: 0,
-    // Release pin slider on right panel (0..1)
     releasePinProgress: 0,
     hoverTimer: 0,
-    outcome: "idle", // idle, hovering, success, sunk, surfaced
+    outcome: "idle",
     bubbles: [],
     dragging: null,
     dragOffX: 0,
@@ -896,7 +900,6 @@ function getS2LoadCellN() {
   if (!s2State.hookAttached || s2State.craneReleased) return 0;
   const liftedOffSeabed = s2State.artY < S2_CONST.seabedY - S2_CONST.artH - 4;
   if (!liftedOffSeabed) return 0;
-  // Apparent weight reduced by any lift bag air already inflated
   const bagLift = mission.fluid.density * s2State.bagVol * G;
   return Math.max(0, mission.artifactApparentW - bagLift);
 }
@@ -907,7 +910,7 @@ function triggerS2Release() {
     return;
   }
   if (!s2State.bagRigged) {
-    setFeedback("s2-feedback", "warn", "Drag the orange salvage lift bag onto the artifact's shackle before releasing!");
+    setFeedback("s2-feedback", "warn", "Drag the orange salvage lift bag onto the artifact's shackle before releasing.");
     return;
   }
   if (s2State.artY >= S2_CONST.seabedY - S2_CONST.artH - 6) {
@@ -926,11 +929,10 @@ function updateStation2(dt) {
   if (!s2State || !mission) return;
   s2State.time += dt;
 
-  // Sonar ROV scanning while hovering over artifact
   const artCx = S2_CONST.craneX;
   const artCy = s2State.artY + S2_CONST.artH / 2;
-  const rovDist = Math.hypot(s2State.rovX + 34 - artCx, s2State.rovY + 20 - artCy);
-  if (rovDist < 95 && !s2State.scanned) {
+  const rovDist = Math.hypot(s2State.rovX + 36 - artCx, s2State.rovY + 21 - artCy);
+  if (rovDist < 100 && !s2State.scanned) {
     s2State.scanProgress = Math.min(1, s2State.scanProgress + dt * 0.9);
     if (s2State.scanProgress >= 1) {
       s2State.scanned = true;
@@ -938,7 +940,6 @@ function updateStation2(dt) {
     }
   }
 
-  // Return unrigged bag / ROV softly when not dragged
   if (!s2State.dragging || s2State.dragging.type !== "rov") {
     if (s2State.scanned) {
       s2State.rovX += (s2State.rovHomeX - s2State.rovX) * Math.min(1, dt * 6);
@@ -950,15 +951,12 @@ function updateStation2(dt) {
     s2State.bagY += (s2State.bagHomeY - s2State.bagY) * Math.min(1, dt * 10);
   }
 
-  // Physics after crane release
   if (s2State.craneReleased) {
     const netBuoyantN = mission.fluid.density * (mission.artifactVol + s2State.bagVol) * G - mission.artifactMass * G;
     const relError = Math.abs(s2State.bagVol - mission.idealBagVol) / mission.idealBagVol;
 
-    // Gentle drift if within 2.5% neutral buoyancy tolerance; dramatic rise/sink otherwise
     let accelPx;
     if (relError <= 0.025) {
-      // Pull gently toward center of recovery zone & hover stably!
       const targetCenterY = (S2_CONST.targetTopY + S2_CONST.targetBottomY) / 2 - S2_CONST.artH / 2;
       accelPx = (targetCenterY - s2State.artY) * 2.2 - s2State.artVel * 2.6;
       s2State.hoverTimer += dt;
@@ -968,20 +966,18 @@ function updateStation2(dt) {
         setFeedback(
           "s2-feedback",
           "success",
-          `Neutral buoyancy achieved! V_bag = ${s2State.bagVol.toFixed(3)} m³ is within ${(relError * 100).toFixed(2)}% of equilibrium. Now finish identifying the material and send m_o to Station 3.`
+          `Neutral buoyancy achieved! $V_{\\text{bag}} = ${s2State.bagVol.toFixed(3)}\\text{ m}^3$ is within $${(relError * 100).toFixed(2)}\\%$ of equilibrium. Finish identifying the material and transmit $m_o$ to Station 3.`
         );
         updateCommsUI();
       }
     } else {
       const aMeters = netBuoyantN / mission.artifactMass;
-      // Negative Y is upward on canvas
-      accelPx = -aMeters * 45 - s2State.artVel * 1.4;
+      accelPx = -aMeters * 48 - s2State.artVel * 1.4;
     }
 
     s2State.artVel += accelPx * dt;
     s2State.artY += s2State.artVel * dt;
 
-    // Check seabed crash
     if (s2State.artY >= S2_CONST.seabedY - S2_CONST.artH) {
       s2State.artY = S2_CONST.seabedY - S2_CONST.artH;
       s2State.artVel = 0;
@@ -990,12 +986,11 @@ function updateStation2(dt) {
         setFeedback(
           "s2-feedback",
           "error",
-          "Too little air! The artifact sank back into the seabed mud. Click 'Reset Salvage' and recalculate V_bag = W_app / (rho_f * g)."
+          "Too little air! The artifact sank back into the seabed mud. Reset and recalculate $V_{\\text{bag}} = \\dfrac{W_{\\text{app}}}{\\rho_f g}$."
         );
       }
     }
 
-    // Check surface breach
     if (s2State.artY <= S2_CONST.waterSurfaceY + 8) {
       s2State.artY = S2_CONST.waterSurfaceY + 8;
       s2State.artVel = 0;
@@ -1004,7 +999,7 @@ function updateStation2(dt) {
         setFeedback(
           "s2-feedback",
           "error",
-          "Uncontrolled Ascent Warning! Too much air in the lift bag caused the artifact to rocket to the surface. Click 'Reset Salvage' and recalculate."
+          "Uncontrolled Ascent Warning! Too much air in the lift bag caused the artifact to rocket to the surface. Reset and recalculate $V_{\\text{bag}}$."
         );
       }
     }
@@ -1013,13 +1008,12 @@ function updateStation2(dt) {
     s2State.hookY = s2State.artY - 12;
   }
 
-  // Ambient bubbles when inflating or floating
   if (s2State.bagRigged && s2State.bagVol > 0.05 && Math.random() < 0.25) {
     s2State.bubbles.push({
-      x: S2_CONST.craneX + (Math.random() - 0.5) * 34,
+      x: S2_CONST.craneX + (Math.random() - 0.5) * 36,
       y: s2State.artY - 22,
       r: 2 + Math.random() * 3,
-      vy: 35 + Math.random() * 30
+      vy: 38 + Math.random() * 32
     });
   }
   s2State.bubbles = s2State.bubbles.filter((b) => {
@@ -1027,7 +1021,6 @@ function updateStation2(dt) {
     return b.y > S2_CONST.waterSurfaceY;
   });
 
-  // Update HUD
   document.getElementById("s2-hud-load").textContent = `${getS2LoadCellN().toFixed(1)} N`;
   document.getElementById("s2-hud-bag").textContent = `${s2State.bagVol.toFixed(3)} m³`;
 }
@@ -1036,11 +1029,9 @@ function drawStation2() {
   const ctx = s2Ctx;
   ctx.clearRect(0, 0, CW, CH);
 
-  // Sky above waterline
   ctx.fillStyle = "#102138";
   ctx.fillRect(0, 0, CW, S2_CONST.waterSurfaceY);
 
-  // Deep ocean gradient
   const sea = ctx.createLinearGradient(0, S2_CONST.waterSurfaceY, 0, CH);
   sea.addColorStop(0, "#0b3657");
   sea.addColorStop(0.55, "#072038");
@@ -1048,7 +1039,6 @@ function drawStation2() {
   ctx.fillStyle = sea;
   ctx.fillRect(0, S2_CONST.waterSurfaceY, CW, CH - S2_CONST.waterSurfaceY);
 
-  // Surface wave line
   ctx.strokeStyle = "#7dd3fc";
   ctx.lineWidth = 2.5;
   ctx.beginPath();
@@ -1059,20 +1049,20 @@ function drawStation2() {
   }
   ctx.stroke();
 
-  // Mid-water Target Neutral Buoyancy Recovery Zone
+  // Mid-water Target Recovery Zone
   ctx.fillStyle = s2State.outcome === "success" ? "rgba(34, 197, 94, 0.22)" : "rgba(34, 197, 94, 0.11)";
-  ctx.fillRect(195, S2_CONST.targetTopY, 450, S2_CONST.targetBottomY - S2_CONST.targetTopY);
+  ctx.fillRect(205, S2_CONST.targetTopY, 520, S2_CONST.targetBottomY - S2_CONST.targetTopY);
   ctx.save();
   ctx.strokeStyle = "rgba(74, 222, 128, 0.65)";
   ctx.setLineDash([7, 5]);
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(195, S2_CONST.targetTopY, 450, S2_CONST.targetBottomY - S2_CONST.targetTopY);
+  ctx.strokeRect(205, S2_CONST.targetTopY, 520, S2_CONST.targetBottomY - S2_CONST.targetTopY);
   ctx.restore();
   ctx.fillStyle = "#86efac";
   ctx.font = "700 11px system-ui, sans-serif";
-  ctx.fillText("TARGET NEUTRAL BUOYANCY ZONE", 206, S2_CONST.targetTopY + 18);
+  ctx.fillText("TARGET NEUTRAL BUOYANCY ZONE", 218, S2_CONST.targetTopY + 18);
 
-  // Seabed mud
+  // Seabed
   ctx.fillStyle = "#2b251f";
   ctx.fillRect(0, S2_CONST.seabedY, CW, CH - S2_CONST.seabedY);
   ctx.strokeStyle = "#4d4236";
@@ -1084,74 +1074,71 @@ function drawStation2() {
 
   // Left Gear Dock
   ctx.fillStyle = "rgba(15, 28, 46, 0.85)";
-  drawRoundedRect(ctx, 16, 86, 152, 314, 10);
+  drawRoundedRect(ctx, 18, 94, 162, 376, 10);
   ctx.fill();
   ctx.strokeStyle = "#2b4264";
   ctx.stroke();
   ctx.fillStyle = "#9db2ce";
   ctx.font = "700 11px system-ui, sans-serif";
-  ctx.fillText("SALVAGE GEAR BAY", 34, 108);
+  ctx.textAlign = "center";
+  ctx.fillText("SALVAGE GEAR BAY", 99, 118);
   ctx.font = "600 10px system-ui, sans-serif";
-  ctx.fillText("Drag ROV over relic:", 32, 128);
-  ctx.fillText("Drag Lift Bag to relic:", 32, 278);
+  ctx.fillText("Drag ROV over relic:", 99, 140);
+  ctx.fillText("Drag Lift Bag to relic:", 99, 320);
+  ctx.textAlign = "left";
 
-  // Right Compressor & Release Pin Panel on Canvas
-  const pX = 668;
+  // Right Compressor & Release Panel
+  const pX = S2_CONST.panelX;
+  const trackX = pX + S2_CONST.panelW / 2;
   ctx.fillStyle = "rgba(15, 28, 46, 0.9)";
-  drawRoundedRect(ctx, pX, 86, 136, 314, 10);
+  drawRoundedRect(ctx, pX, 94, S2_CONST.panelW, 376, 10);
   ctx.fill();
   ctx.strokeStyle = "#2b4264";
   ctx.stroke();
   ctx.fillStyle = "#9db2ce";
   ctx.font = "700 11px system-ui, sans-serif";
-  ctx.fillText("AIR COMPRESSOR", pX + 16, 108);
+  ctx.textAlign = "center";
+  ctx.fillText("AIR COMPRESSOR", trackX, 118);
 
-  // Air valve vertical track
-  const trackX = pX + 68;
-  const trackTop = 128;
-  const trackH = 150;
   ctx.fillStyle = "#091322";
-  drawRoundedRect(ctx, trackX - 6, trackTop, 12, trackH, 6);
+  drawRoundedRect(ctx, trackX - 6, S2_CONST.trackTop, 12, S2_CONST.trackH, 6);
   ctx.fill();
   const maxBag = parseFloat(document.getElementById("s2-bag-slider").max) || 15;
   const bagRatio = clamp(s2State.bagVol / maxBag, 0, 1);
-  const leverY = trackTop + trackH - bagRatio * trackH;
+  const leverY = S2_CONST.trackTop + S2_CONST.trackH - bagRatio * S2_CONST.trackH;
 
   ctx.fillStyle = "#38bdf8";
-  drawRoundedRect(ctx, trackX - 6, leverY, 12, trackTop + trackH - leverY, 6);
+  drawRoundedRect(ctx, trackX - 6, leverY, 12, S2_CONST.trackTop + S2_CONST.trackH - leverY, 6);
   ctx.fill();
 
-  // Draggable valve knob
   ctx.fillStyle = s2State.bagRigged ? "#f59e0b" : "#475569";
   drawRoundedRect(ctx, trackX - 24, leverY - 10, 48, 20, 6);
   ctx.fill();
   ctx.fillStyle = "#0b1320";
   ctx.font = "700 9px system-ui, sans-serif";
-  ctx.textAlign = "center";
   ctx.fillText("AIR", trackX, leverY + 3);
   ctx.fillStyle = "#e2e8f0";
   ctx.font = "700 11px monospace";
-  ctx.fillText(`${s2State.bagVol.toFixed(2)} m³`, trackX, trackTop + trackH + 18);
+  ctx.fillText(`${s2State.bagVol.toFixed(2)} m³`, trackX, S2_CONST.trackTop + S2_CONST.trackH + 22);
 
-  // Draggable Red Release Pin Slide Track
-  const pinTrackX = pX + 16;
-  const pinTrackY = 342;
-  const pinTrackW = 104;
+  // Release Pin Slide Track
+  const pinTrackX = pX + (S2_CONST.panelW - S2_CONST.pinTrackW) / 2;
+  const pinTrackY = S2_CONST.pinTrackY;
   ctx.fillStyle = "#091322";
-  drawRoundedRect(ctx, pinTrackX, pinTrackY, pinTrackW, 30, 15);
+  drawRoundedRect(ctx, pinTrackX, pinTrackY, S2_CONST.pinTrackW, 30, 15);
   ctx.fill();
   ctx.strokeStyle = "#ef4444";
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  const pinKnobX = pinTrackX + 15 + s2State.releasePinProgress * (pinTrackW - 30);
+  const pinKnobX = pinTrackX + 15 + s2State.releasePinProgress * (S2_CONST.pinTrackW - 30);
   ctx.fillStyle = "#ef4444";
   ctx.beginPath();
   ctx.arc(pinKnobX, pinTrackY + 15, 13, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#fff";
   ctx.font = "700 9px system-ui, sans-serif";
-  ctx.fillText(s2State.craneReleased ? "FREE" : "SLIDE", trackX, pinTrackY - 8);
+  ctx.fillText(s2State.craneReleased ? "RELEASED" : "SLIDE TO RELEASE", trackX, pinTrackY - 9);
   ctx.textAlign = "left";
 
   // Crane Cable & Load Cell
@@ -1163,9 +1150,8 @@ function drawStation2() {
   ctx.lineTo(cx, s2State.hookY - 26);
   ctx.stroke();
 
-  // Load Cell box on cable (draggable up/down)
   ctx.fillStyle = "#1e293b";
-  drawRoundedRect(ctx, cx - 42, s2State.hookY - 38, 84, 34, 6);
+  drawRoundedRect(ctx, cx - 44, s2State.hookY - 38, 88, 34, 6);
   ctx.fill();
   ctx.strokeStyle = s2State.hookAttached ? "#22c55e" : "#38bdf8";
   ctx.lineWidth = 2;
@@ -1176,7 +1162,6 @@ function drawStation2() {
   ctx.fillText(`${getS2LoadCellN().toFixed(0)} N`, cx, s2State.hookY - 17);
   ctx.textAlign = "left";
 
-  // Hook jaw
   ctx.strokeStyle = "#e2e8f0";
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -1185,22 +1170,20 @@ function drawStation2() {
   ctx.arc(cx, s2State.hookY + 12, 7, -Math.PI / 2, Math.PI, false);
   ctx.stroke();
 
-  // Rigged Lift Bag floating above artifact
+  // Rigged Lift Bag
   if (s2State.bagRigged) {
-    const scaleR = 16 + Math.pow(s2State.bagVol, 0.45) * 18;
-    const bagCenterY = s2State.artY - 26 - scaleR * 0.7;
+    const scaleR = 17 + Math.pow(s2State.bagVol, 0.45) * 19;
+    const bagCenterY = s2State.artY - 28 - scaleR * 0.7;
 
-    // Rigging straps
     ctx.strokeStyle = "#fde047";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(cx - 18, s2State.artY);
+    ctx.moveTo(cx - 20, s2State.artY);
     ctx.lineTo(cx - scaleR * 0.55, bagCenterY + scaleR * 0.5);
-    ctx.moveTo(cx + 18, s2State.artY);
+    ctx.moveTo(cx + 20, s2State.artY);
     ctx.lineTo(cx + scaleR * 0.55, bagCenterY + scaleR * 0.5);
     ctx.stroke();
 
-    // Parachute lift bag dome
     const bagGrad = ctx.createRadialGradient(cx - 6, bagCenterY - 8, 4, cx, bagCenterY, scaleR);
     bagGrad.addColorStop(0, "#fb923c");
     bagGrad.addColorStop(1, "#c2410c");
@@ -1216,7 +1199,6 @@ function drawStation2() {
     ctx.stroke();
   }
 
-  // Bubbles
   ctx.fillStyle = "rgba(186, 230, 253, 0.55)";
   s2State.bubbles.forEach((b) => {
     ctx.beginPath();
@@ -1224,11 +1206,10 @@ function drawStation2() {
     ctx.fill();
   });
 
-  // Sunken Mystery Artifact
+  // Mystery Artifact
   const ax = cx - S2_CONST.artW / 2;
   const ay = s2State.artY;
 
-  // Lifting shackle ring on top of artifact
   ctx.strokeStyle = "#cbd5e1";
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -1246,30 +1227,27 @@ function drawStation2() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Rivets & label
   ctx.fillStyle = "#0f172a";
   ctx.font = "800 11px system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("MYSTERY", cx, ay + 24);
-  ctx.fillText("ARTIFACT", cx, ay + 40);
+  ctx.fillText("MYSTERY", cx, ay + 26);
+  ctx.fillText("ARTIFACT", cx, ay + 42);
   ctx.textAlign = "left";
 
-  // Drop target circle when dragging hook or bag
   if (s2State.dragging && (s2State.dragging.type === "bag" || (s2State.dragging.type === "hook" && !s2State.hookAttached))) {
     ctx.save();
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(cx, ay + 12, 46, 0, Math.PI * 2);
+    ctx.arc(cx, ay + 14, 50, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
   }
 
-  // Unrigged Lift Bag in Gear Bay
   if (!s2State.bagRigged) {
     ctx.fillStyle = "#ea580c";
-    drawRoundedRect(ctx, s2State.bagX, s2State.bagY, 72, 46, 10);
+    drawRoundedRect(ctx, s2State.bagX, s2State.bagY, 74, 48, 10);
     ctx.fill();
     ctx.strokeStyle = "#fed7aa";
     ctx.lineWidth = 1.5;
@@ -1277,31 +1255,31 @@ function drawStation2() {
     ctx.fillStyle = "#fff";
     ctx.font = "700 10px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("LIFT BAG", s2State.bagX + 36, s2State.bagY + 27);
+    ctx.fillText("LIFT BAG", s2State.bagX + 37, s2State.bagY + 28);
     ctx.textAlign = "left";
   }
 
-  // Draggable Yellow Sonar ROV
+  // Yellow Sonar ROV
   const rx = s2State.rovX;
   const ry = s2State.rovY;
-  // Sonar beam when close to artifact
-  const rovDist = Math.hypot(rx + 34 - cx, ry + 20 - (ay + S2_CONST.artH / 2));
-  if (rovDist < 105 && !s2State.scanned) {
+  const rovDist = Math.hypot(rx + 36 - cx, ry + 21 - (ay + S2_CONST.artH / 2));
+  if (rovDist < 108 && !s2State.scanned) {
     ctx.save();
     ctx.strokeStyle = "rgba(56, 189, 248, 0.7)";
     ctx.lineWidth = 2;
-    const pulse = (s2State.time * 60) % 55;
+    const pulse = (s2State.time * 60) % 58;
     ctx.beginPath();
-    ctx.arc(cx, ay + S2_CONST.artH / 2, 18 + pulse, 0, Math.PI * 2);
+    ctx.arc(cx, ay + S2_CONST.artH / 2, 20 + pulse, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = "#38bdf8";
     ctx.font = "700 11px monospace";
-    ctx.fillText(`SCANNING ${Math.round(s2State.scanProgress * 100)}%`, cx - 44, ay - 22);
+    ctx.textAlign = "center";
+    ctx.fillText(`SCANNING ${Math.round(s2State.scanProgress * 100)}%`, cx, ay - 22);
     ctx.restore();
   }
 
   ctx.fillStyle = "#eab308";
-  drawRoundedRect(ctx, rx, ry, 68, 40, 10);
+  drawRoundedRect(ctx, rx, ry, 72, 42, 10);
   ctx.fill();
   ctx.strokeStyle = "#fef08a";
   ctx.lineWidth = 1.5;
@@ -1309,46 +1287,54 @@ function drawStation2() {
   ctx.fillStyle = "#0f172a";
   ctx.font = "800 10px system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("SONAR", rx + 34, ry + 18);
-  ctx.fillText(s2State.scanned ? "DONE" : "ROV", rx + 34, ry + 31);
+  ctx.fillText("SONAR", rx + 36, ry + 19);
+  ctx.fillText(s2State.scanned ? "DONE" : "ROV", rx + 36, ry + 32);
   ctx.textAlign = "left";
 }
 
-// Station 2 Pointer Drag Events
+// Station 2 Pointer Events
 s2Canvas.addEventListener("pointerdown", (e) => {
   const pos = getPointerPos(s2Canvas, e);
   s2Canvas.setPointerCapture(e.pointerId);
 
-  // 1. Check Sonar ROV
-  if (pos.x >= s2State.rovX && pos.x <= s2State.rovX + 68 && pos.y >= s2State.rovY && pos.y <= s2State.rovY + 40) {
+  if (pos.x >= s2State.rovX && pos.x <= s2State.rovX + 72 && pos.y >= s2State.rovY && pos.y <= s2State.rovY + 42) {
     s2State.dragging = { type: "rov" };
     s2State.dragOffX = pos.x - s2State.rovX;
     s2State.dragOffY = pos.y - s2State.rovY;
     return;
   }
 
-  // 2. Check Unrigged Lift Bag
-  if (!s2State.bagRigged && pos.x >= s2State.bagX && pos.x <= s2State.bagX + 72 && pos.y >= s2State.bagY && pos.y <= s2State.bagY + 46) {
+  if (!s2State.bagRigged && pos.x >= s2State.bagX && pos.x <= s2State.bagX + 74 && pos.y >= s2State.bagY && pos.y <= s2State.bagY + 48) {
     s2State.dragging = { type: "bag" };
     s2State.dragOffX = pos.x - s2State.bagX;
     s2State.dragOffY = pos.y - s2State.bagY;
     return;
   }
 
-  // 3. Check Air Compressor Lever
-  const trackX = 668 + 68;
-  if (s2State.bagRigged && !s2State.craneReleased && Math.abs(pos.x - trackX) <= 32 && pos.y >= 118 && pos.y <= 290) {
+  const trackX = S2_CONST.panelX + S2_CONST.panelW / 2;
+  if (
+    s2State.bagRigged &&
+    !s2State.craneReleased &&
+    Math.abs(pos.x - trackX) <= 32 &&
+    pos.y >= S2_CONST.trackTop - 12 &&
+    pos.y <= S2_CONST.trackTop + S2_CONST.trackH + 12
+  ) {
     s2State.dragging = { type: "airValve" };
     return;
   }
 
-  // 4. Check Red Release Pin Slider
-  if (!s2State.craneReleased && pos.x >= 680 && pos.x <= 795 && pos.y >= 334 && pos.y <= 380) {
+  const pinTrackX = S2_CONST.panelX + (S2_CONST.panelW - S2_CONST.pinTrackW) / 2;
+  if (
+    !s2State.craneReleased &&
+    pos.x >= pinTrackX - 6 &&
+    pos.x <= pinTrackX + S2_CONST.pinTrackW + 6 &&
+    pos.y >= S2_CONST.pinTrackY - 8 &&
+    pos.y <= S2_CONST.pinTrackY + 38
+  ) {
     s2State.dragging = { type: "releasePin" };
     return;
   }
 
-  // 5. Check Crane Hook / Load Cell (drag down to latch, drag up to lift)
   const cx = S2_CONST.craneX;
   if (!s2State.craneReleased && Math.abs(pos.x - cx) <= 48 && pos.y >= s2State.hookY - 42 && pos.y <= s2State.hookY + 32) {
     s2State.dragging = { type: "hook" };
@@ -1358,44 +1344,42 @@ s2Canvas.addEventListener("pointerdown", (e) => {
 
 s2Canvas.addEventListener("pointermove", (e) => {
   const pos = getPointerPos(s2Canvas, e);
+  const trackX = S2_CONST.panelX + S2_CONST.panelW / 2;
+  const pinTrackX = S2_CONST.panelX + (S2_CONST.panelW - S2_CONST.pinTrackW) / 2;
+
   if (!s2State.dragging) {
     const cx = S2_CONST.craneX;
-    const overRov = pos.x >= s2State.rovX && pos.x <= s2State.rovX + 68 && pos.y >= s2State.rovY && pos.y <= s2State.rovY + 40;
-    const overBag = !s2State.bagRigged && pos.x >= s2State.bagX && pos.x <= s2State.bagX + 72 && pos.y >= s2State.bagY && pos.y <= s2State.bagY + 46;
+    const overRov = pos.x >= s2State.rovX && pos.x <= s2State.rovX + 72 && pos.y >= s2State.rovY && pos.y <= s2State.rovY + 42;
+    const overBag = !s2State.bagRigged && pos.x >= s2State.bagX && pos.x <= s2State.bagX + 74 && pos.y >= s2State.bagY && pos.y <= s2State.bagY + 48;
     const overHook = !s2State.craneReleased && Math.abs(pos.x - cx) <= 48 && pos.y >= s2State.hookY - 42 && pos.y <= s2State.hookY + 32;
-    const overAir = s2State.bagRigged && !s2State.craneReleased && Math.abs(pos.x - 736) <= 32 && pos.y >= 118 && pos.y <= 290;
-    const overPin = !s2State.craneReleased && pos.x >= 680 && pos.x <= 795 && pos.y >= 334 && pos.y <= 380;
+    const overAir = s2State.bagRigged && !s2State.craneReleased && Math.abs(pos.x - trackX) <= 32 && pos.y >= S2_CONST.trackTop - 12 && pos.y <= S2_CONST.trackTop + S2_CONST.trackH + 12;
+    const overPin = !s2State.craneReleased && pos.x >= pinTrackX - 6 && pos.x <= pinTrackX + S2_CONST.pinTrackW + 6 && pos.y >= S2_CONST.pinTrackY - 8 && pos.y <= S2_CONST.pinTrackY + 38;
     s2Canvas.style.cursor = overHook || overAir ? "ns-resize" : overRov || overBag || overPin ? "grab" : "default";
     return;
   }
 
   s2Canvas.style.cursor = "grabbing";
   if (s2State.dragging.type === "rov") {
-    s2State.rovX = clamp(pos.x - s2State.dragOffX, 10, CW - 78);
-    s2State.rovY = clamp(pos.y - s2State.dragOffY, S2_CONST.waterSurfaceY + 8, S2_CONST.seabedY - 44);
+    s2State.rovX = clamp(pos.x - s2State.dragOffX, 10, CW - 82);
+    s2State.rovY = clamp(pos.y - s2State.dragOffY, S2_CONST.waterSurfaceY + 8, S2_CONST.seabedY - 46);
   } else if (s2State.dragging.type === "bag") {
-    s2State.bagX = clamp(pos.x - s2State.dragOffX, 10, CW - 82);
-    s2State.bagY = clamp(pos.y - s2State.dragOffY, S2_CONST.waterSurfaceY + 8, S2_CONST.seabedY - 50);
+    s2State.bagX = clamp(pos.x - s2State.dragOffX, 10, CW - 84);
+    s2State.bagY = clamp(pos.y - s2State.dragOffY, S2_CONST.waterSurfaceY + 8, S2_CONST.seabedY - 52);
   } else if (s2State.dragging.type === "hook") {
     const maxHookY = s2State.artY - 10;
-    const minHookY = s2State.hookAttached ? S2_CONST.targetTopY + 8 : 110;
+    const minHookY = s2State.hookAttached ? S2_CONST.targetTopY + 8 : 115;
     s2State.hookY = clamp(pos.y - s2State.dragOffY, minHookY, s2State.hookAttached ? S2_CONST.seabedY - S2_CONST.artH - 12 : maxHookY + 12);
-    // Auto-latch when hook reaches artifact lifting ring
     if (!s2State.hookAttached && Math.abs(s2State.hookY - (s2State.artY - 12)) < 18) {
       s2State.hookAttached = true;
     }
   } else if (s2State.dragging.type === "airValve") {
-    const trackTop = 128;
-    const trackH = 150;
-    const ratio = clamp(1 - (pos.y - trackTop) / trackH, 0, 1);
+    const ratio = clamp(1 - (pos.y - S2_CONST.trackTop) / S2_CONST.trackH, 0, 1);
     const maxBag = parseFloat(document.getElementById("s2-bag-slider").max) || 15;
     s2State.bagVol = Math.round(ratio * maxBag * 1000) / 1000;
     document.getElementById("s2-bag-slider").value = s2State.bagVol;
     document.getElementById("s2-bag-number").value = s2State.bagVol;
   } else if (s2State.dragging.type === "releasePin") {
-    const pinTrackX = 668 + 16;
-    const pinTrackW = 104;
-    s2State.releasePinProgress = clamp((pos.x - (pinTrackX + 15)) / (pinTrackW - 30), 0, 1);
+    s2State.releasePinProgress = clamp((pos.x - (pinTrackX + 15)) / (S2_CONST.pinTrackW - 30), 0, 1);
     if (s2State.releasePinProgress >= 0.92) {
       s2State.dragging = null;
       triggerS2Release();
@@ -1406,8 +1390,8 @@ s2Canvas.addEventListener("pointermove", (e) => {
 function releaseS2Drag() {
   if (!s2State.dragging) return;
   if (s2State.dragging.type === "bag") {
-    const dist = Math.hypot(s2State.bagX + 36 - S2_CONST.craneX, s2State.bagY + 23 - (s2State.artY + 12));
-    if (dist < 85) {
+    const dist = Math.hypot(s2State.bagX + 37 - S2_CONST.craneX, s2State.bagY + 24 - (s2State.artY + 14));
+    if (dist < 90) {
       s2State.bagRigged = true;
     }
   } else if (s2State.dragging.type === "releasePin" && !s2State.craneReleased) {
@@ -1427,13 +1411,13 @@ const s3Canvas = document.getElementById("canvas-s3");
 const s3Ctx = initHiDPICanvas(s3Canvas);
 
 const S3_CONST = {
-  waterlineY: 270,
-  pxPerMeter: 86,
-  bargeX: 225,
-  bargePxW: 370,
-  wheelCx: 725,
-  wheelCy: 175,
-  wheelR: 46
+  waterlineY: 315,
+  pxPerMeter: 96,
+  bargeX: 245,
+  bargePxW: 415,
+  wheelCx: 816,
+  wheelCy: 205,
+  wheelR: 50
 };
 
 let s3State = null;
@@ -1446,15 +1430,15 @@ function resetStation3() {
     draftVel: 0,
     tiltRad: 0,
     cargoLoaded: false,
-    cargoX: 72,
-    cargoY: 112,
-    cargoHomeX: 72,
-    cargoHomeY: 112,
+    cargoX: 74,
+    cargoY: 122,
+    cargoHomeX: 74,
+    cargoHomeY: 122,
     caliperY: S3_CONST.waterlineY,
     wheelAngle: 0,
     lastPointerAngle: 0,
     sprayTimer: 0,
-    outcome: "empty", // empty, safe, swamped, topheavy
+    outcome: "empty",
     dragging: null,
     dragOffX: 0,
     dragOffY: 0,
@@ -1473,7 +1457,7 @@ function updateStation3SpecsUI() {
   if (!mission) return;
   const b = mission.barge;
   document.getElementById("s3-spec-L").textContent = `${b.L.toFixed(1)} m`;
-  document.getElementById("s3-spec-W").textContent = `${b.W.toFixed(1)} m (Area = ${b.area.toFixed(1)} m²)`;
+  document.getElementById("s3-spec-W").textContent = `${b.W.toFixed(1)} m (${b.area.toFixed(1)} m²)`;
   document.getElementById("s3-spec-mb").textContent = `${b.mb.toLocaleString()} kg`;
   document.getElementById("s3-spec-dsafe").textContent = `${b.dSafe.toFixed(2)} m`;
   document.getElementById("s3-spec-dmin").textContent = `${b.dMin.toFixed(2)} m`;
@@ -1496,14 +1480,14 @@ function evaluateS3Outcome() {
     setFeedback(
       "s3-feedback",
       "error",
-      `Barge Swamped! Loaded draft reached ${eqDraft.toFixed(3)} m, crossing the ${b.dSafe.toFixed(2)} m red danger line. Click 'Reset Barge' and pump out more ballast.`
+      `Barge Swamped! Loaded draft reached $${eqDraft.toFixed(3)}\\text{ m}$, crossing $d_{\\text{safe}} = ${b.dSafe.toFixed(2)}\\text{ m}$. Reset and discharge more ballast ($V_{\\text{pump}}$).`
     );
   } else if (eqDraft < b.dMin - 0.005) {
     s3State.outcome = "topheavy";
     setFeedback(
       "s3-feedback",
       "warn",
-      `Stability Warning — Excessive Freeboard! Loaded draft (${eqDraft.toFixed(3)} m) is too high (below ${b.dMin.toFixed(2)} m), making the barge top-heavy. Reset and pump closer to your exact V_pump.`
+      `Stability Warning! Loaded draft ($${eqDraft.toFixed(3)}\\text{ m}$) is above $d_{\\text{min}} = ${b.dMin.toFixed(2)}\\text{ m}$, making the hull top-heavy. Reset and pump closer to your calculated $V_{\\text{pump}}$.`
     );
   } else {
     s3State.outcome = "safe";
@@ -1511,7 +1495,7 @@ function evaluateS3Outcome() {
     setFeedback(
       "s3-feedback",
       "success",
-      `Artifact safely secured! Final loaded draft is ${eqDraft.toFixed(3)} m — right inside the green safe zone (${b.dMin.toFixed(2)} m to ${b.dSafe.toFixed(2)} m).`
+      `Artifact safely secured! Final loaded draft is $${eqDraft.toFixed(3)}\\text{ m}$ — inside the green safe zone ($${b.dMin.toFixed(2)}\\text{ m}$ to $${b.dSafe.toFixed(2)}\\text{ m}$).`
     );
     updateCommsUI();
   }
@@ -1525,36 +1509,33 @@ function updateStation3(dt) {
   const b = mission.barge;
   let targetDraft = getS3EquilibriumDraft();
   if (s3State.outcome === "swamped") {
-    targetDraft = b.hullHeight + 0.35; // sinks below deck
+    targetDraft = b.hullHeight + 0.35;
     s3State.tiltRad += (0.24 - s3State.tiltRad) * Math.min(1, dt * 1.8);
   } else if (s3State.outcome === "topheavy") {
-    s3State.tiltRad = Math.sin(s3State.time * 4.5) * 0.14; // unstable rolling
+    s3State.tiltRad = Math.sin(s3State.time * 4.5) * 0.14;
   } else {
     s3State.tiltRad = Math.sin(s3State.time * 1.6) * 0.012;
   }
 
-  // Smooth buoyant bobbing
   const acc = (targetDraft - s3State.draftM) * 24 - s3State.draftVel * 5.2;
   s3State.draftVel += acc * dt;
   s3State.draftM += s3State.draftVel * dt;
 
-  // Snap unplaced cargo back to crane hook
   if (!s3State.cargoLoaded && (!s3State.dragging || s3State.dragging.type !== "cargo")) {
     s3State.cargoX += (s3State.cargoHomeX - s3State.cargoX) * Math.min(1, dt * 10);
     s3State.cargoY += (s3State.cargoHomeY - s3State.cargoY) * Math.min(1, dt * 10);
   }
 
-  // HUD updates
   const hullBottomY = S3_CONST.waterlineY + s3State.draftM * S3_CONST.pxPerMeter;
   const caliperDraftM = Math.max(0, (hullBottomY - s3State.caliperY) / S3_CONST.pxPerMeter);
   document.getElementById("s3-hud-caliper").textContent = `${caliperDraftM.toFixed(3)} m`;
   document.getElementById("s3-hud-pumped").textContent = `${s3State.pumpedVol.toFixed(2)} m³`;
 
   const statusLabels = {
-    empty: `Empty (Draft ~${s3State.draftM.toFixed(2)} m)`,
-    safe: `SAFE LOADED (${getS3EquilibriumDraft().toFixed(2)} m)`,
-    swamped: "SWAMPED — OVER RED LINE",
-    topheavy: "UNSTABLE — TOO HIGH"
+    empty: `Empty (~${s3State.draftM.toFixed(2)} m)`,
+    safe: `SAFE (${getS3EquilibriumDraft().toFixed(2)} m)`,
+    swamped: "SWAMPED",
+    topheavy: "UNSTABLE"
   };
   document.getElementById("s3-hud-draft").textContent = statusLabels[s3State.outcome];
 }
@@ -1564,18 +1545,15 @@ function drawStation3() {
   ctx.clearRect(0, 0, CW, CH);
   const b = mission.barge;
 
-  // Sky
   const sky = ctx.createLinearGradient(0, 0, 0, S3_CONST.waterlineY);
   sky.addColorStop(0, "#0d1b2e");
   sky.addColorStop(1, "#183150");
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, CW, S3_CONST.waterlineY);
 
-  // Back water layer
   ctx.fillStyle = "#0a2a47";
   ctx.fillRect(0, S3_CONST.waterlineY, CW, CH - S3_CONST.waterlineY);
 
-  // Barge Geometry
   const hullPxH = b.hullHeight * S3_CONST.pxPerMeter;
   const hullBottomY = S3_CONST.waterlineY + s3State.draftM * S3_CONST.pxPerMeter;
   const hullTopY = hullBottomY - hullPxH;
@@ -1584,29 +1562,26 @@ function drawStation3() {
   const bcx = bx + bw / 2;
   const bcy = hullTopY + hullPxH / 2;
 
-  // Gantry crane arm holding unplaced artifact on left
   if (!s3State.cargoLoaded) {
     ctx.strokeStyle = "#64748b";
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(20, 44);
-    ctx.lineTo(130, 44);
+    ctx.moveTo(20, 46);
+    ctx.lineTo(140, 46);
     ctx.stroke();
     ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(s3State.cargoX + 38, 44);
-    ctx.lineTo(s3State.cargoX + 38, s3State.cargoY);
+    ctx.moveTo(s3State.cargoX + 40, 46);
+    ctx.lineTo(s3State.cargoX + 40, s3State.cargoY);
     ctx.stroke();
   }
 
-  // Draw Barge (with subtle wave tilt)
   ctx.save();
   ctx.translate(bcx, bcy);
   ctx.rotate(s3State.tiltRad);
   ctx.translate(-bcx, -bcy);
 
-  // Hull outer shell
   ctx.fillStyle = "#334155";
   drawRoundedRect(ctx, bx, hullTopY, bw, hullPxH, 6);
   ctx.fill();
@@ -1614,15 +1589,14 @@ function drawStation3() {
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Deck rail
   ctx.fillStyle = "#475569";
   ctx.fillRect(bx - 6, hullTopY - 8, bw + 12, 10);
 
-  // Interior cutaway Ballast Tank showing remaining water
-  const tankX = bx + 54;
-  const tankW = bw - 108;
-  const tankH = hullPxH - 36;
-  const tankY = hullTopY + 22;
+  // Ballast tank cutaway
+  const tankX = bx + 58;
+  const tankW = bw - 116;
+  const tankH = hullPxH - 38;
+  const tankY = hullTopY + 24;
   ctx.fillStyle = "#0f172a";
   ctx.fillRect(tankX, tankY, tankW, tankH);
   ctx.strokeStyle = "#475569";
@@ -1644,31 +1618,29 @@ function drawStation3() {
   );
   ctx.textAlign = "left";
 
-  // Green Safe Draft Band on Hull Exterior (left & right edges)
+  // Green Safe Draft Band + Red & Yellow Lines
   const safeRedY = hullBottomY - b.dSafe * S3_CONST.pxPerMeter;
   const minYelY = hullBottomY - b.dMin * S3_CONST.pxPerMeter;
   ctx.fillStyle = "rgba(34, 197, 94, 0.45)";
-  ctx.fillRect(bx + 2, safeRedY, 44, minYelY - safeRedY);
+  ctx.fillRect(bx + 2, safeRedY, 48, minYelY - safeRedY);
 
-  // Red Max Safe Draft Line across hull
   ctx.strokeStyle = "#ef4444";
   ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(bx - 4, safeRedY);
-  ctx.lineTo(bx + 52, safeRedY);
-  ctx.moveTo(bx + bw - 52, safeRedY);
+  ctx.lineTo(bx + 54, safeRedY);
+  ctx.moveTo(bx + bw - 54, safeRedY);
   ctx.lineTo(bx + bw + 4, safeRedY);
   ctx.stroke();
 
-  // Yellow Min Stable Draft Line
   ctx.strokeStyle = "#facc15";
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(bx, minYelY);
-  ctx.lineTo(bx + 46, minYelY);
+  ctx.lineTo(bx + 50, minYelY);
   ctx.stroke();
 
-  // Draft ruler markings on left side of hull (meters from bottom)
+  // Draft ruler on hull
   ctx.fillStyle = "#f8fafc";
   ctx.strokeStyle = "#e2e8f0";
   ctx.font = "600 9px monospace";
@@ -1683,19 +1655,19 @@ function drawStation3() {
     ctx.lineWidth = isMajor ? 1.5 : 1;
     ctx.stroke();
     if (isMajor) {
-      ctx.fillText(`${m.toFixed(1)}m`, bx + 18, my + 3);
+      ctx.fillText(`${m.toFixed(1)}m`, bx + 19, my + 3);
     }
   }
 
-  // Deck Landing Pad (Drop Zone for Artifact!)
-  const padX = bcx - 52;
-  const padY = hullTopY - 66;
+  // Deck Landing Pad
+  const padX = bcx - 56;
+  const padY = hullTopY - 68;
   if (!s3State.cargoLoaded) {
     ctx.save();
     ctx.strokeStyle = s3State.dragging && s3State.dragging.type === "cargo" ? "#4ade80" : "#38bdf8";
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
-    drawRoundedRect(ctx, padX, padY, 104, 58, 8);
+    drawRoundedRect(ctx, padX, padY, 112, 60, 8);
     ctx.stroke();
     ctx.fillStyle = "rgba(56, 189, 248, 0.12)";
     ctx.fill();
@@ -1703,15 +1675,14 @@ function drawStation3() {
     ctx.fillStyle = "#bae6fd";
     ctx.font = "700 10px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("DROP ARTIFACT", bcx, padY + 26);
-    ctx.fillText("HERE ON DECK", bcx, padY + 41);
+    ctx.fillText("DROP ARTIFACT", bcx, padY + 27);
+    ctx.fillText("HERE ON DECK", bcx, padY + 42);
     ctx.textAlign = "left";
   } else {
-    // Artifact sitting on deck!
-    const ax = bcx - 38;
-    const ay = hullTopY - 64;
+    const ax = bcx - 40;
+    const ay = hullTopY - 66;
     ctx.fillStyle = "#94a3b8";
-    drawRoundedRect(ctx, ax, ay, 76, 56, 7);
+    drawRoundedRect(ctx, ax, ay, 80, 58, 7);
     ctx.fill();
     ctx.strokeStyle = "#e2e8f0";
     ctx.lineWidth = 2;
@@ -1719,28 +1690,26 @@ function drawStation3() {
     ctx.fillStyle = "#0f172a";
     ctx.font = "800 10px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("SECURED", bcx, ay + 25);
-    ctx.fillText("ARTIFACT", bcx, ay + 40);
+    ctx.fillText("SECURED", bcx, ay + 26);
+    ctx.fillText("ARTIFACT", bcx, ay + 41);
     ctx.textAlign = "left";
   }
 
-  // Water discharge spray animation while pumping
   if (s3State.sprayTimer > 0) {
     ctx.strokeStyle = "#7dd3fc";
     ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(bx + bw, hullTopY + 38);
-    ctx.quadraticCurveTo(bx + bw + 32, hullTopY + 42, bx + bw + 52, S3_CONST.waterlineY);
+    ctx.moveTo(bx + bw, hullTopY + 40);
+    ctx.quadraticCurveTo(bx + bw + 34, hullTopY + 44, bx + bw + 56, S3_CONST.waterlineY);
     ctx.stroke();
   }
 
   ctx.restore();
 
-  // Translucent front ocean surface over submerged hull
+  // Translucent Ocean Surface
   ctx.fillStyle = mission.fluid.tint;
   ctx.fillRect(0, S3_CONST.waterlineY, CW, CH - S3_CONST.waterlineY);
 
-  // Surface wave crest
   ctx.strokeStyle = "#7dd3fc";
   ctx.lineWidth = 2.5;
   ctx.beginPath();
@@ -1751,12 +1720,11 @@ function drawStation3() {
   }
   ctx.stroke();
 
-  // Draggable Unplaced Artifact (if not yet dropped on deck)
   if (!s3State.cargoLoaded) {
     const ax = s3State.cargoX;
     const ay = s3State.cargoY;
     ctx.fillStyle = "#94a3b8";
-    drawRoundedRect(ctx, ax, ay, 76, 56, 7);
+    drawRoundedRect(ctx, ax, ay, 80, 58, 7);
     ctx.fill();
     ctx.strokeStyle = "#fef08a";
     ctx.lineWidth = 2;
@@ -1764,37 +1732,39 @@ function drawStation3() {
     ctx.fillStyle = "#0f172a";
     ctx.font = "800 10px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("DRAG TO", ax + 38, ay + 24);
-    ctx.fillText("DECK", ax + 38, ay + 39);
+    ctx.fillText("DRAG TO", ax + 40, ay + 25);
+    ctx.fillText("DECK", ax + 40, ay + 40);
     ctx.textAlign = "left";
   }
 
-  // Draggable Red Waterline Caliper on Left of Barge
+  // Draggable Red Waterline Caliper
   ctx.save();
   ctx.strokeStyle = "#f43f5e";
   ctx.lineWidth = 1.6;
   ctx.setLineDash([6, 4]);
   ctx.beginPath();
   ctx.moveTo(bx - 12, s3State.caliperY);
-  ctx.lineTo(bx + 80, s3State.caliperY);
+  ctx.lineTo(bx + 86, s3State.caliperY);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = "#f43f5e";
-  drawRoundedRect(ctx, bx - 84, s3State.caliperY - 12, 74, 24, 6);
+  drawRoundedRect(ctx, bx - 88, s3State.caliperY - 12, 76, 24, 6);
   ctx.fill();
   ctx.fillStyle = "#fff";
   ctx.font = "700 10px monospace";
+  ctx.textAlign = "center";
   const calDraft = Math.max(0, (hullBottomY - s3State.caliperY) / S3_CONST.pxPerMeter);
-  ctx.fillText(`${calDraft.toFixed(2)} m`, bx - 74, s3State.caliperY + 4);
+  ctx.fillText(`${calDraft.toFixed(2)} m`, bx - 50, s3State.caliperY + 4);
+  ctx.textAlign = "left";
   ctx.restore();
 
-  // Draggable Rotary Ballast Pump Wheel on Right
+  // Rotary Ballast Pump Wheel
   const wx = S3_CONST.wheelCx;
   const wy = S3_CONST.wheelCy;
   const wr = S3_CONST.wheelR;
 
-  ctx.fillStyle = "rgba(15, 28, 46, 0.9)";
-  drawRoundedRect(ctx, wx - 72, wy - 84, 144, 174, 12);
+  ctx.fillStyle = "rgba(15, 28, 46, 0.92)";
+  drawRoundedRect(ctx, wx - 78, wy - 90, 156, 186, 12);
   ctx.fill();
   ctx.strokeStyle = "#2b4264";
   ctx.stroke();
@@ -1802,9 +1772,8 @@ function drawStation3() {
   ctx.fillStyle = "#9db2ce";
   ctx.font = "700 11px system-ui, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("BALLAST PUMP WHEEL", wx, wy - 62);
+  ctx.fillText("BALLAST PUMP WHEEL", wx, wy - 66);
 
-  // Rotary wheel graphic
   ctx.save();
   ctx.translate(wx, wy);
   ctx.rotate(s3State.wheelAngle);
@@ -1822,7 +1791,6 @@ function drawStation3() {
     ctx.lineTo(Math.cos(ang) * wr, Math.sin(ang) * wr);
     ctx.stroke();
   }
-  // Grab handle peg
   ctx.fillStyle = "#f59e0b";
   ctx.beginPath();
   ctx.arc(wr, 0, 8, 0, Math.PI * 2);
@@ -1831,25 +1799,24 @@ function drawStation3() {
 
   ctx.fillStyle = "#e2e8f0";
   ctx.font = "700 11px monospace";
-  ctx.fillText(`Pumped: ${s3State.pumpedVol.toFixed(2)} m³`, wx, wy + 68);
+  ctx.fillText(`Pumped: ${s3State.pumpedVol.toFixed(2)} m³`, wx, wy + 72);
   ctx.fillStyle = "#94a3b8";
   ctx.font = "600 9px system-ui, sans-serif";
-  ctx.fillText("Turn CW to pump out", wx, wy + 82);
+  ctx.fillText("Turn CW to pump out", wx, wy + 87);
   ctx.textAlign = "left";
 }
 
-// Station 3 Pointer Drag Events
+// Station 3 Pointer Events
 s3Canvas.addEventListener("pointerdown", (e) => {
   const pos = getPointerPos(s3Canvas, e);
   s3Canvas.setPointerCapture(e.pointerId);
 
-  // 1. Check Artifact Cargo drag
   if (
     !s3State.cargoLoaded &&
     pos.x >= s3State.cargoX &&
-    pos.x <= s3State.cargoX + 76 &&
+    pos.x <= s3State.cargoX + 80 &&
     pos.y >= s3State.cargoY &&
-    pos.y <= s3State.cargoY + 56
+    pos.y <= s3State.cargoY + 58
   ) {
     s3State.dragging = { type: "cargo" };
     s3State.dragOffX = pos.x - s3State.cargoX;
@@ -1857,14 +1824,12 @@ s3Canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  // 2. Check Waterline Caliper
   const bx = S3_CONST.bargeX;
-  if (pos.x >= bx - 88 && pos.x <= bx - 4 && Math.abs(pos.y - s3State.caliperY) <= 18) {
+  if (pos.x >= bx - 92 && pos.x <= bx - 4 && Math.abs(pos.y - s3State.caliperY) <= 18) {
     s3State.dragging = { type: "caliper" };
     return;
   }
 
-  // 3. Check Rotary Ballast Wheel
   const distWheel = Math.hypot(pos.x - S3_CONST.wheelCx, pos.y - S3_CONST.wheelCy);
   if (!s3State.cargoLoaded && distWheel <= S3_CONST.wheelR + 18) {
     s3State.dragging = { type: "wheel" };
@@ -1876,8 +1841,8 @@ s3Canvas.addEventListener("pointermove", (e) => {
   const pos = getPointerPos(s3Canvas, e);
   if (!s3State.dragging) {
     const bx = S3_CONST.bargeX;
-    const overCargo = !s3State.cargoLoaded && pos.x >= s3State.cargoX && pos.x <= s3State.cargoX + 76 && pos.y >= s3State.cargoY && pos.y <= s3State.cargoY + 56;
-    const overCal = pos.x >= bx - 88 && pos.x <= bx - 4 && Math.abs(pos.y - s3State.caliperY) <= 18;
+    const overCargo = !s3State.cargoLoaded && pos.x >= s3State.cargoX && pos.x <= s3State.cargoX + 80 && pos.y >= s3State.cargoY && pos.y <= s3State.cargoY + 58;
+    const overCal = pos.x >= bx - 92 && pos.x <= bx - 4 && Math.abs(pos.y - s3State.caliperY) <= 18;
     const overWheel = !s3State.cargoLoaded && Math.hypot(pos.x - S3_CONST.wheelCx, pos.y - S3_CONST.wheelCy) <= S3_CONST.wheelR + 18;
     s3Canvas.style.cursor = overCal ? "ns-resize" : overCargo || overWheel ? "grab" : "default";
     return;
@@ -1885,10 +1850,10 @@ s3Canvas.addEventListener("pointermove", (e) => {
 
   s3Canvas.style.cursor = "grabbing";
   if (s3State.dragging.type === "cargo") {
-    s3State.cargoX = clamp(pos.x - s3State.dragOffX, 10, CW - 86);
+    s3State.cargoX = clamp(pos.x - s3State.dragOffX, 10, CW - 90);
     s3State.cargoY = clamp(pos.y - s3State.dragOffY, 10, S3_CONST.waterlineY - 20);
   } else if (s3State.dragging.type === "caliper") {
-    s3State.caliperY = clamp(pos.y, 120, CH - 20);
+    s3State.caliperY = clamp(pos.y, 130, CH - 20);
   } else if (s3State.dragging.type === "wheel") {
     const ang = Math.atan2(pos.y - S3_CONST.wheelCy, pos.x - S3_CONST.wheelCx);
     let delta = ang - s3State.lastPointerAngle;
@@ -1897,7 +1862,6 @@ s3Canvas.addEventListener("pointermove", (e) => {
     s3State.lastPointerAngle = ang;
     s3State.wheelAngle += delta;
 
-    // 1 full clockwise revolution pumps 2.5 m^3
     const dVol = (delta / (Math.PI * 2)) * 2.5;
     s3State.pumpedVol = clamp(
       Math.round((s3State.pumpedVol + dVol) * 100) / 100,
@@ -1918,14 +1882,14 @@ function releaseS3Drag() {
     const hullBottomY = S3_CONST.waterlineY + s3State.draftM * S3_CONST.pxPerMeter;
     const hullTopY = hullBottomY - b.hullHeight * S3_CONST.pxPerMeter;
     const bcx = S3_CONST.bargeX + S3_CONST.bargePxW / 2;
-    const cargoCx = s3State.cargoX + 38;
-    const cargoCy = s3State.cargoY + 28;
+    const cargoCx = s3State.cargoX + 40;
+    const cargoCy = s3State.cargoY + 29;
 
     const onDeck =
-      Math.abs(cargoCx - bcx) <= 135 && cargoCy >= hullTopY - 125 && cargoCy <= hullTopY + 30;
+      Math.abs(cargoCx - bcx) <= 150 && cargoCy >= hullTopY - 135 && cargoCy <= hullTopY + 35;
     if (onDeck) {
       s3State.cargoLoaded = true;
-      s3State.draftVel += 0.65; // splash impulse when artifact sets down
+      s3State.draftVel += 0.65;
       evaluateS3Outcome();
     }
   }
@@ -1940,7 +1904,6 @@ s3Canvas.addEventListener("pointercancel", releaseS3Drag);
    FORM VERIFICATION & UI CONTROLS
    ========================================================================= */
 
-// Station 1 Transmit
 document.getElementById("s1-btn-transmit").addEventListener("click", () => {
   const m1 = parseFloat(document.getElementById("s1-input-m1").value);
   const m2 = parseFloat(document.getElementById("s1-input-m2").value);
@@ -1954,7 +1917,7 @@ document.getElementById("s1-btn-transmit").addEventListener("click", () => {
     setFeedback(
       "s1-feedback",
       "error",
-      `QC Check Failed: Method 1 (${m1}) and Method 2 (${m2}) differ by ${pctDiff.toFixed(1)}%. Re-check your measurements until they agree within 2.5%.`
+      `QC Check Failed: Method 1 ($${m1}$) and Method 2 ($${m2}$) differ by $${pctDiff.toFixed(1)}\\%$. Re-check your measurements until they agree within $2.5\\%$.`
     );
     return;
   }
@@ -1966,12 +1929,11 @@ document.getElementById("s1-btn-transmit").addEventListener("click", () => {
   setFeedback(
     "s1-feedback",
     "success",
-    `QC Passed (${pctDiff.toFixed(2)}% agreement)! Transmitted rho_f = ${avg.toFixed(1)} kg/m³ to Stations 2 & 3. Station 3 can now cross-check this against their empty barge draft!`
+    `QC Passed ($${pctDiff.toFixed(2)}\\%$ agreement)! Transmitted $\\rho_f = ${avg.toFixed(1)}\\text{ kg/m}^3$ to Stations 2 & 3.`
   );
   updateCommsUI();
 });
 
-// Station 2 Sliders & Release
 const s2Slider = document.getElementById("s2-bag-slider");
 const s2Number = document.getElementById("s2-bag-number");
 
@@ -1992,14 +1954,13 @@ s2Slider.addEventListener("input", (e) => syncS2Bag(e.target.value));
 s2Number.addEventListener("input", (e) => syncS2Bag(e.target.value));
 document.getElementById("s2-btn-release").addEventListener("click", triggerS2Release);
 
-// Station 2 Material Verification (accepts any Wikipedia material matching density within tolerance)
 document.getElementById("s2-btn-verify").addEventListener("click", () => {
   const massIn = parseFloat(document.getElementById("s2-input-mass").value);
   const rhoIn = parseFloat(document.getElementById("s2-input-density").value);
   const rawName = document.getElementById("s2-input-material").value.trim().toLowerCase();
 
   if (Number.isNaN(massIn) || Number.isNaN(rhoIn) || !rawName) {
-    setFeedback("s2-feedback", "warn", "Fill in calculated mass, calculated density, and the material name from the Wikipedia popup.");
+    setFeedback("s2-feedback", "warn", "Fill in $m_o$, $\\rho_o$, and the material name from the Wikipedia popup.");
     return;
   }
 
@@ -2010,7 +1971,7 @@ document.getElementById("s2-btn-verify").addEventListener("click", () => {
     setFeedback(
       "s2-feedback",
       "warn",
-      `"${rawName}" wasn't found in the Wikipedia 'Various materials' table. Click 'Look Up' to check the exact material name.`
+      `"${rawName}" wasn't found in the Wikipedia 'Various materials' table. Click 'Look Up' to check the exact name.`
     );
     return;
   }
@@ -2022,7 +1983,7 @@ document.getElementById("s2-btn-verify").addEventListener("click", () => {
     setFeedback(
       "s2-feedback",
       "error",
-      `${matchedEntry.name} has a Wikipedia density of ${matchedEntry.density.toLocaleString()} kg/m³, which doesn't match the sunken artifact's real density. Double-check Station 1's rho_f and your calculation.`
+      `${matchedEntry.name} has a reference density of $${matchedEntry.density.toLocaleString()}\\text{ kg/m}^3$, which does not match the artifact. Re-check $\\rho_f$ and $\\rho_o$.`
     );
     return;
   }
@@ -2031,14 +1992,13 @@ document.getElementById("s2-btn-verify").addEventListener("click", () => {
     setFeedback(
       "s2-feedback",
       "warn",
-      `Material matches, but your calculated mass (${massIn.toFixed(1)} kg) is off by more than 3.5%. Re-check m_o = W_app/g + rho_f * V_o.`
+      `Material matches, but your calculated mass ($${massIn.toFixed(1)}\\text{ kg}$) is off by more than $3.5\\%$. Re-check $m_o = \\dfrac{W_{\\text{app}}}{g} + \\rho_f V_o$.`
     );
     return;
   }
 
-  // Check if multiple Wikipedia materials share that exact density
   const tied = WIKI_MATERIALS.filter((m) => m.density === mission.material.density).map((m) => m.name);
-  const tieNote = tied.length > 1 ? ` (Note: ${tied.join(", ")} share ${mission.material.density.toLocaleString()} kg/m³ on Wikipedia.)` : "";
+  const tieNote = tied.length > 1 ? ` (Note: ${tied.join(", ")} share $${mission.material.density.toLocaleString()}\\text{ kg/m}^3$.)` : "";
 
   crewProgress.s2MaterialDone = true;
   crewProgress.s2Mass = massIn;
@@ -2048,12 +2008,11 @@ document.getElementById("s2-btn-verify").addEventListener("click", () => {
   setFeedback(
     "s2-feedback",
     "success",
-    `Material Verified: ${matchedEntry.name} (${matchedEntry.density.toLocaleString()} kg/m³)!${tieNote} Sent m_o = ${massIn.toFixed(1)} kg to Station 3.`
+    `Material Verified: ${matchedEntry.name} ($${matchedEntry.density.toLocaleString()}\\text{ kg/m}^3$)!${tieNote} Sent $m_o = ${massIn.toFixed(1)}\\text{ kg}$ to Station 3.`
   );
   updateCommsUI();
 });
 
-// Station 3 Pump Slider Sync
 const s3Slider = document.getElementById("s3-pump-slider");
 const s3Number = document.getElementById("s3-pump-number");
 
@@ -2070,20 +2029,26 @@ function syncS3Pump(val) {
 s3Slider.addEventListener("input", (e) => syncS3Pump(e.target.value));
 s3Number.addEventListener("input", (e) => syncS3Pump(e.target.value));
 
-// Reset Buttons
 document.getElementById("s1-btn-reset").addEventListener("click", resetStation1);
 document.getElementById("s2-btn-reset").addEventListener("click", resetStation2);
 document.getElementById("s3-btn-reset").addEventListener("click", resetStation3);
 
-// Station Tab Switching
+// Station Tab Switching with Subtle Click Glow Pulse
 [1, 2, 3].forEach((n) => {
-  document.getElementById(`tab-btn-${n}`).addEventListener("click", () => {
+  const btn = document.getElementById(`tab-btn-${n}`);
+  btn.addEventListener("click", () => {
     activeStation = n;
     [1, 2, 3].forEach((k) => {
-      document.getElementById(`tab-btn-${k}`).classList.toggle("active", k === n);
-      document.getElementById(`tab-btn-${k}`).setAttribute("aria-selected", String(k === n));
-      document.getElementById(`station-${k}`).classList.toggle("active", k === n);
+      const tBtn = document.getElementById(`tab-btn-${k}`);
+      const isSelected = k === n;
+      tBtn.classList.toggle("active", isSelected);
+      tBtn.classList.remove("glow-pulse");
+      tBtn.setAttribute("aria-selected", String(isSelected));
+      document.getElementById(`station-${k}`).classList.toggle("active", isSelected);
     });
+    // Force reflow to replay subtle glow animation on every click
+    void btn.offsetWidth;
+    btn.classList.add("glow-pulse");
   });
 });
 
@@ -2099,30 +2064,6 @@ document.getElementById("btn-random-seed").addEventListener("click", () => {
   const code = `${words[Math.floor(Math.random() * words.length)]}-${Math.floor(10 + Math.random() * 90)}`;
   document.getElementById("seed-input").value = code;
   generateMission(code);
-});
-
-// Instructor Key (hidden behind confirmation dialog)
-document.getElementById("btn-instructor-key").addEventListener("click", () => {
-  if (!confirm("Show the Instructor Answer Key for the current Mission Seed?")) return;
-  const m = mission;
-  const b = m.barge;
-  alert(
-    `INSTRUCTOR KEY — Seed: ${m.seed}\n\n` +
-      `Station 1 (Fluid):\n` +
-      `  • Fluid: ${m.fluid.label}\n` +
-      `  • Density (rho_f): ${m.fluid.density} kg/m³\n\n` +
-      `Station 2 (Artifact):\n` +
-      `  • Material: ${m.material.name} (${m.material.density} kg/m³)\n` +
-      `  • Volume (V_o): ${m.artifactVol.toFixed(3)} m³\n` +
-      `  • True Mass (m_o): ${m.artifactMass.toFixed(1)} kg\n` +
-      `  • Apparent Weight (W_app): ${m.artifactApparentW.toFixed(1)} N\n` +
-      `  • Neutral Lift Bag Volume (V_bag): ${m.idealBagVol.toFixed(3)} m³\n\n` +
-      `Station 3 (Recovery Barge):\n` +
-      `  • Empty Draft (d_0): ${b.d0.toFixed(3)} m\n` +
-      `  • Unpumped Loaded Draft (d_loaded): ${b.unpumpedLoadedD.toFixed(3)} m\n` +
-      `  • Exact Ballast to Pump for d_safe (${b.dSafe.toFixed(2)} m): ${b.idealPumpVol.toFixed(2)} m³\n` +
-      `  • Safe Pump Window: ${b.idealPumpVol.toFixed(2)} m³ to ${(b.area * (b.unpumpedLoadedD - b.dMin)).toFixed(2)} m³`
-  );
 });
 
 /* =========================================================================
@@ -2147,7 +2088,6 @@ document.getElementById("btn-wiki-table").addEventListener("click", () => {
   wikiIframe.src = WIKI_URL;
 });
 
-// Close modal when clicking outside backdrop
 wikiDialog.addEventListener("click", (e) => {
   const rect = wikiDialog.getBoundingClientRect();
   const clickedInside =
@@ -2156,7 +2096,7 @@ wikiDialog.addEventListener("click", (e) => {
 });
 
 /* =========================================================================
-   MAIN ANIMATION LOOP
+   MAIN ANIMATION LOOP & INITIALIZATION
    ========================================================================= */
 let lastTs = performance.now();
 
@@ -2178,6 +2118,7 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
-// Boot default mission
+// Render all static LaTeX across the page and boot default mission
+renderMathIn(document.body);
 generateMission("ALPHA-01");
 requestAnimationFrame(animate);
