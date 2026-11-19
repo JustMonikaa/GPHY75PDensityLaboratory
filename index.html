@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Operation Deep Salvage — Virtual Density &amp; Archimedes Lab</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-badge">LAB</div>
+      <div>
+        <h1>Operation Deep Salvage</h1>
+        <p class="subtitle">3-Station Density &amp; Archimedes' Principle Virtual Lab (9-Member Crew)</p>
+      </div>
+    </div>
+
+    <div class="controls-bar">
+      <div class="seed-box">
+        <label for="seed-input">Mission Seed</label>
+        <input id="seed-input" type="text" value="ALPHA-01" maxlength="20" spellcheck="false" />
+        <button id="btn-load-seed" class="btn btn-primary" type="button">Load</button>
+        <button id="btn-random-seed" class="btn btn-secondary" type="button">Randomize</button>
+      </div>
+
+      <button id="btn-open-wiki" class="btn btn-wiki" type="button">
+        Density Reference (Wikipedia)
+      </button>
+      <button id="btn-instructor-key" class="btn btn-ghost" type="button" title="View answer key for current seed">
+        Instructor Key
+      </button>
+    </div>
+  </header>
+
+  <section class="comms-strip" aria-label="Mission Communications">
+    <div class="comms-item">
+      <span class="comms-label">Station 1 &rarr; Fluid Density (&rho;<sub>f</sub>)</span>
+      <strong id="comms-rho" class="comms-value pending">Awaiting Lab Data</strong>
+    </div>
+    <div class="comms-item">
+      <span class="comms-label">Station 2 &rarr; Artifact Mass (m<sub>o</sub>)</span>
+      <strong id="comms-mass" class="comms-value pending">Awaiting Salvage</strong>
+    </div>
+    <div class="comms-item">
+      <span class="comms-label">Identified Material</span>
+      <strong id="comms-mat" class="comms-value pending">Unidentified</strong>
+    </div>
+    <div class="comms-item">
+      <span class="comms-label">Mission Status</span>
+      <strong id="comms-status" class="comms-value status-active">In Progress</strong>
+    </div>
+  </section>
+
+  <nav class="station-tabs" role="tablist">
+    <button id="tab-btn-1" class="tab-btn active" type="button" role="tab" aria-selected="true">
+      <span class="tab-num">Station 1</span>
+      <span class="tab-title">Fluid Analysis Lab</span>
+      <span class="tab-members">Members 1–3</span>
+    </button>
+    <button id="tab-btn-2" class="tab-btn" type="button" role="tab" aria-selected="false">
+      <span class="tab-num">Station 2</span>
+      <span class="tab-title">Seabed Salvage &amp; Lift Bag</span>
+      <span class="tab-members">Members 4–6</span>
+    </button>
+    <button id="tab-btn-3" class="tab-btn" type="button" role="tab" aria-selected="false">
+      <span class="tab-num">Station 3</span>
+      <span class="tab-title">Recovery Barge &amp; Ballast</span>
+      <span class="tab-members">Members 7–9</span>
+    </button>
+  </nav>
+
+  <main class="workspace">
+    <!-- ==================== STATION 1 ==================== -->
+    <section id="station-1" class="station-panel active">
+      <div class="canvas-column">
+        <div class="panel-header">
+          <div>
+            <h2>Station 1: Unknown Site Fluid Lab</h2>
+            <p class="hint">
+              <strong>Drag</strong> brass weights onto the hydrometer pan &amp; drag the red sightline to read depth <em>h</em>.
+              On the right, <strong>drag</strong> the metal block onto the spring hook, then <strong>drag</strong> the winch handle down to submerge it.
+            </p>
+          </div>
+          <button id="s1-btn-reset" class="btn btn-secondary btn-sm" type="button">Reset Lab Bench</button>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="canvas-s1"></canvas>
+        </div>
+
+        <div class="hud-bar">
+          <div class="hud-card">
+            <span>Hydrometer Total Mass (m<sub>h</sub>)</span>
+            <strong id="s1-hud-mass">0.50 kg</strong>
+          </div>
+          <div class="hud-card">
+            <span>Sightline Depth Reading (h)</span>
+            <strong id="s1-hud-depth">0.100 m</strong>
+          </div>
+          <div class="hud-card">
+            <span>Spring Scale Reading</span>
+            <strong id="s1-hud-scale">0.00 N</strong>
+          </div>
+        </div>
+      </div>
+
+      <aside class="control-column">
+        <div class="card">
+          <h3>Fixed Equipment Specs</h3>
+          <ul class="spec-list">
+            <li>Hydrometer Base Mass: <strong>0.50 kg</strong></li>
+            <li>Hydrometer Cross-Section (A): <strong>0.0050 m&sup2;</strong></li>
+            <li>Reference Block Volume (V<sub>r</sub>): <strong>0.00120 m&sup3;</strong></li>
+            <li>Gravity (g): <strong>9.81 m/s&sup2;</strong></li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>Team Roles (Members 1–3)</h3>
+          <ol class="role-list">
+            <li><strong>Member 1 (Operator):</strong> Stack different weights on the hydrometer and align the red sightline with the waterline.</li>
+            <li><strong>Member 2 (Analyst):</strong> Calculate &rho;<sub>f</sub> = m<sub>h</sub> / (A &middot; h) across 3 weight trials and average them.</li>
+            <li><strong>Member 3 (QC Officer):</strong> Hook the reference block, read W<sub>air</sub>, lower it fully underwater for W<sub>sub</sub>, and check &rho;<sub>f</sub> = (W<sub>air</sub> &minus; W<sub>sub</sub>) / (V<sub>r</sub> &middot; g).</li>
+          </ol>
+        </div>
+
+        <div class="card">
+          <h3>Cross-Check &amp; Transmit Fluid Density</h3>
+          <div class="form-row">
+            <label for="s1-input-m1">Method 1 Average &rho;<sub>f</sub> (kg/m&sup3;)</label>
+            <input id="s1-input-m1" type="number" step="0.1" placeholder="e.g. 1030" />
+          </div>
+          <div class="form-row">
+            <label for="s1-input-m2">Method 2 Check &rho;<sub>f</sub> (kg/m&sup3;)</label>
+            <input id="s1-input-m2" type="number" step="0.1" placeholder="e.g. 1030" />
+          </div>
+          <button id="s1-btn-transmit" class="btn btn-primary btn-full" type="button">
+            Verify Agreement &amp; Transmit &rho;<sub>f</sub>
+          </button>
+          <div id="s1-feedback" class="feedback-box"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ==================== STATION 2 ==================== -->
+    <section id="station-2" class="station-panel">
+      <div class="canvas-column">
+        <div class="panel-header">
+          <div>
+            <h2>Station 2: Seabed Salvage &amp; Neutral Buoyancy</h2>
+            <p class="hint">
+              <strong>1)</strong> Drag the crane hook to the artifact ring &amp; lift it slightly off the seabed for W<sub>app</sub>.
+              <strong>2)</strong> Drag the yellow Sonar ROV across the artifact to measure V<sub>o</sub>.
+              <strong>3)</strong> Drag the lift bag onto the shackle, inflate via the air valve lever, then slide the red Release Pin.
+            </p>
+          </div>
+          <button id="s2-btn-reset" class="btn btn-secondary btn-sm" type="button">Reset Salvage</button>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="canvas-s2"></canvas>
+        </div>
+
+        <div class="hud-bar">
+          <div class="hud-card">
+            <span>Crane Load Cell (W<sub>app</sub>)</span>
+            <strong id="s2-hud-load">0.0 N</strong>
+          </div>
+          <div class="hud-card">
+            <span>Sonar Volume (V<sub>o</sub>)</span>
+            <strong id="s2-hud-vol">Not Scanned</strong>
+          </div>
+          <div class="hud-card">
+            <span>Lift Bag Air Volume (V<sub>bag</sub>)</span>
+            <strong id="s2-hud-bag">0.000 m&sup3;</strong>
+          </div>
+        </div>
+      </div>
+
+      <aside class="control-column">
+        <div class="card">
+          <h3>Lift Bag Fine-Tuning &amp; Release</h3>
+          <p class="mini-note">You can drag the air lever directly on the canvas or fine-tune the exact volume below once the bag is rigged.</p>
+          <div class="slider-group">
+            <label for="s2-bag-slider">Air Volume V<sub>bag</sub> (m&sup3;)</label>
+            <input id="s2-bag-slider" type="range" min="0" max="15" step="0.001" value="0" />
+            <input id="s2-bag-number" type="number" min="0" max="15" step="0.001" value="0" />
+          </div>
+          <button id="s2-btn-release" class="btn btn-danger btn-full" type="button">
+            Release Crane Hook (Hover Test)
+          </button>
+        </div>
+
+        <div class="card">
+          <h3>Material ID &amp; Mass Handoff (Members 4–6)</h3>
+          <div class="form-row">
+            <label for="s2-input-rho-rx">Fluid Density &rho;<sub>f</sub> from Station 1 (kg/m&sup3;)</label>
+            <input id="s2-input-rho-rx" type="number" step="0.1" placeholder="Auto-filled or type from Team 1" />
+          </div>
+          <div class="form-row">
+            <label for="s2-input-mass">Calculated True Mass m<sub>o</sub> (kg)</label>
+            <input id="s2-input-mass" type="number" step="0.1" placeholder="m_o = W_app/g + rho_f * V_o" />
+          </div>
+          <div class="form-row">
+            <label for="s2-input-density">Calculated Density &rho;<sub>o</sub> (kg/m&sup3;)</label>
+            <input id="s2-input-density" type="number" step="1" placeholder="rho_o = m_o / V_o" />
+          </div>
+          <div class="form-row">
+            <label for="s2-input-material">Artifact Material Name (use Wikipedia popup)</label>
+            <div class="inline-action">
+              <input id="s2-input-material" type="text" placeholder="Type material name..." autocomplete="off" />
+              <button id="s2-btn-open-wiki-2" class="btn btn-wiki btn-sm" type="button">Look Up</button>
+            </div>
+          </div>
+          <button id="s2-btn-verify" class="btn btn-primary btn-full" type="button">
+            Verify Material &amp; Send m<sub>o</sub> to Station 3
+          </button>
+          <div id="s2-feedback" class="feedback-box"></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- ==================== STATION 3 ==================== -->
+    <section id="station-3" class="station-panel">
+      <div class="canvas-column">
+        <div class="panel-header">
+          <div>
+            <h2>Station 3: Recovery Barge &amp; Ballast Control</h2>
+            <p class="hint">
+              <strong>1)</strong> Drag the red waterline caliper to measure empty draft d<sub>0</sub> (verifies Station 1's &rho;<sub>f</sub>!).
+              <strong>2)</strong> Rotate the blue ballast pump wheel (or drag slider) to pump out your calculated V<sub>pump</sub>.
+              <strong>3)</strong> <strong>Drag the hoisted artifact</strong> onto the barge deck landing pad!
+            </p>
+          </div>
+          <button id="s3-btn-reset" class="btn btn-secondary btn-sm" type="button">Reset Barge</button>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="canvas-s3"></canvas>
+        </div>
+
+        <div class="hud-bar">
+          <div class="hud-card">
+            <span>Waterline Caliper</span>
+            <strong id="s3-hud-caliper">0.000 m</strong>
+          </div>
+          <div class="hud-card">
+            <span>Ballast Pumped Out (V<sub>pump</sub>)</span>
+            <strong id="s3-hud-pumped">0.00 m&sup3;</strong>
+          </div>
+          <div class="hud-card">
+            <span>Barge Hull Status</span>
+            <strong id="s3-hud-draft">Floating Empty</strong>
+          </div>
+        </div>
+      </div>
+
+      <aside class="control-column">
+        <div class="card">
+          <h3>Barge Hull Blueprints (Member 7)</h3>
+          <ul class="spec-list">
+            <li>Hull Length (L): <strong id="s3-spec-L">--</strong></li>
+            <li>Hull Width (W): <strong id="s3-spec-W">--</strong></li>
+            <li>Starting Mass w/ Ballast (m<sub>b</sub>): <strong id="s3-spec-mb">--</strong></li>
+            <li>Max Safe Draft (Red Line, d<sub>safe</sub>): <strong id="s3-spec-dsafe">--</strong></li>
+            <li>Min Stable Draft (Yellow Line): <strong id="s3-spec-dmin">--</strong></li>
+            <li>Ballast Tank Capacity: <strong id="s3-spec-vmax">--</strong></li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h3>Ballast Discharge Control (Member 9)</h3>
+          <p class="mini-note">Turn the blue pump wheel on the canvas or fine-tune the exact volume to pump out before setting the artifact on deck.</p>
+          <div class="slider-group">
+            <label for="s3-pump-slider">Water Pumped Out V<sub>pump</sub> (m&sup3;)</label>
+            <input id="s3-pump-slider" type="range" min="0" max="20" step="0.01" value="0" />
+            <input id="s3-pump-number" type="number" min="0" max="20" step="0.01" value="0" />
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Draft Prediction Log (Member 8)</h3>
+          <div class="form-row">
+            <label for="s3-input-rho-rx">Fluid Density &rho;<sub>f</sub> (kg/m&sup3;)</label>
+            <input id="s3-input-rho-rx" type="number" step="0.1" placeholder="From Station 1" />
+          </div>
+          <div class="form-row">
+            <label for="s3-input-mass-rx">Artifact Mass m<sub>o</sub> (kg)</label>
+            <input id="s3-input-mass-rx" type="number" step="0.1" placeholder="From Station 2" />
+          </div>
+          <div class="form-row">
+            <label for="s3-input-dloaded">Predicted Unpumped Draft d<sub>loaded</sub> (m)</label>
+            <input id="s3-input-dloaded" type="number" step="0.001" placeholder="(m_b + m_o) / (rho_f * L * W)" />
+          </div>
+          <div class="form-row">
+            <label for="s3-input-vpump">Calculated Ballast to Pump V<sub>pump</sub> (m&sup3;)</label>
+            <input id="s3-input-vpump" type="number" step="0.01" placeholder="L * W * (d_loaded - d_safe)" />
+          </div>
+          <div id="s3-feedback" class="feedback-box"></div>
+        </div>
+      </aside>
+    </section>
+
+    <div id="mission-complete-banner" class="mission-banner hidden">
+      <div>
+        <h2>Mission Accomplished — Full 9-Member Crew Clearance!</h2>
+        <p id="mission-summary-text"></p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ==================== WIKIPEDIA POPUP DIALOG ==================== -->
+  <dialog id="wiki-dialog" class="wiki-modal">
+    <div class="wiki-modal-header">
+      <div>
+        <h3>Density Reference — Wikipedia</h3>
+        <span class="wiki-url">https://en.wikipedia.org/wiki/Density#Various_materials</span>
+      </div>
+      <div class="wiki-modal-actions">
+        <button id="btn-wiki-table" class="btn btn-secondary btn-sm" type="button">Jump to Materials Table</button>
+        <a
+          href="https://en.wikipedia.org/wiki/Density#Various_materials"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-primary btn-sm"
+        >
+          Open in New Tab &#8599;
+        </a>
+        <button id="btn-close-wiki" class="btn btn-danger btn-sm" type="button">&times; Close</button>
+      </div>
+    </div>
+    <div class="wiki-modal-body">
+      <iframe
+        id="wiki-iframe"
+        title="Wikipedia Density Reference"
+        loading="lazy"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </div>
+  </dialog>
+
+  <script src="script.js"></script>
+</body>
+</html>
